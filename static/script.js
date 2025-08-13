@@ -1,5 +1,5 @@
 /**
- * Real-Time Translator - Complete Enhanced Version
+hh * Real-Time Translator - Complete Enhanced Version
  * With Advanced Object Detection (YOLO, MediaPipe, Enhanced COCO-SSD)
  */
 
@@ -27,8 +27,13 @@ const getApiBase = () => {
     return '';
 };
 
+// ==================== CONFIGURATION ====================
 const APP_CONFIG = {
-    API_BASE: getApiBase(),
+    // Fix the API base URL
+    API_BASE: window.location.hostname.includes('railway.app') 
+        ? '' // On Railway, use same origin (no localhost)
+        : 'http://127.0.0.1:8080', // For local development, use port 8080
+    
     DETECTION: {
         DEFAULT_MODEL: 'yolo',
         MIN_CONFIDENCE: 0.3,
@@ -50,6 +55,9 @@ const APP_CONFIG = {
         FRAME_RATE: { ideal: 30, min: 15 }
     }
 };
+
+console.log('Running on:', window.location.hostname);
+console.log('API Base:', APP_CONFIG.API_BASE || 'same origin');
 
 console.log('API Base URL:', APP_CONFIG.API_BASE || 'Same origin');
 
@@ -826,7 +834,13 @@ class RealTimeTranslator {
      */
     async testBackendConnection() {
         try {
-            const response = await fetch(`${this.apiBase}/health`, {
+            const apiUrl = APP_CONFIG.API_BASE ? 
+                `${APP_CONFIG.API_BASE}/health` : 
+                '/health';
+                
+            console.log('Testing backend at:', apiUrl);
+            
+            const response = await fetch(apiUrl, {
                 method: 'GET',
                 headers: { 'Content-Type': 'application/json' }
             });
@@ -851,7 +865,11 @@ class RealTimeTranslator {
      */
     async loadSupportedLanguages() {
         try {
-            const response = await fetch(`${this.apiBase}/languages`);
+            const apiUrl = APP_CONFIG.API_BASE ? 
+                `${APP_CONFIG.API_BASE}/languages` : 
+                '/languages';
+                
+            const response = await fetch(apiUrl);
             const data = await response.json();
             
             if (data.languages) {
@@ -1816,7 +1834,11 @@ class RealTimeTranslator {
         const target = targetLang || this.state.targetLanguage;
         
         try {
-            const response = await fetch(`${this.apiBase}/translate`, {
+            const apiUrl = APP_CONFIG.API_BASE ? 
+                `${APP_CONFIG.API_BASE}/translate` : 
+                '/translate';
+                
+            const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1923,9 +1945,9 @@ document.addEventListener('DOMContentLoaded', () => {
     window.translator = new RealTimeTranslator();
 });
 
-// ==================== SERVICE WORKER (Optional) ====================
-if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(e => {
-        console.log('Service worker registration failed:', e);
-    });
-}
+// // ==================== SERVICE WORKER (Optional) ====================
+// if ('serviceWorker' in navigator) {
+//     navigator.serviceWorker.register('/sw.js').catch(e => {
+//         console.log('Service worker registration failed:', e);
+//     });
+// }
