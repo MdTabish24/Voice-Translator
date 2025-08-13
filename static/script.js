@@ -1,10 +1,10 @@
 /**
-hh * Real-Time Translator - Complete Enhanced Version
+ * Real-Time Translator - Complete Enhanced Version
  * With Advanced Object Detection (YOLO, MediaPipe, Enhanced COCO-SSD)
+ * Updated with Text Mode, Language Swap, and Camera Switching
  */
 
 // ==================== CONFIGURATION ====================
-// Dynamically detect the API base URL
 const getApiBase = () => {
     // If we're on Railway or production
     if (window.location.hostname.includes('railway.app') || 
@@ -51,18 +51,13 @@ const APP_CONFIG = {
     CAMERA: {
         WIDTH: { ideal: 1280, min: 640 },
         HEIGHT: { ideal: 720, min: 480 },
-        FACING_MODE: 'environment',
+        FACING_MODE: 'environment', // Default to back camera
         FRAME_RATE: { ideal: 30, min: 15 }
     }
 };
 
 console.log('Running on:', window.location.hostname);
 console.log('API Base:', APP_CONFIG.API_BASE || 'same origin');
-
-console.log('API Base URL:', APP_CONFIG.API_BASE || 'Same origin');
-
-
-
 
 // ==================== ADVANCED DETECTION MODELS ====================
 class UniversalObjectDetector {
@@ -639,6 +634,7 @@ class RealTimeTranslator {
         // State management
         this.state = {
             currentMode: 'voice',
+            sourceLanguage: 'auto', // Added source language
             targetLanguage: 'es',
             isListening: false,
             isCameraActive: false,
@@ -646,6 +642,7 @@ class RealTimeTranslator {
             lastTranslation: null,
             recognition: null,
             videoStream: null,
+            currentCameraFacing: 'environment', // Track current camera (back camera default)
             detectionInterval: null,
             translationQueue: [],
             processedObjects: new Set()
@@ -654,14 +651,23 @@ class RealTimeTranslator {
         // DOM elements
         this.elements = {
             voiceMode: document.getElementById('voiceMode'),
+            textMode: document.getElementById('textMode'), // Added text mode
             cameraMode: document.getElementById('cameraMode'),
+            sourceLanguage: document.getElementById('sourceLanguage'), // Added source language
             targetLanguage: document.getElementById('targetLanguage'),
+            swapLanguages: document.getElementById('swapLanguages'), // Added swap button
             voiceInterface: document.getElementById('voiceInterface'),
+            textInterface: document.getElementById('textInterface'), // Added text interface
             cameraInterface: document.getElementById('cameraInterface'),
             startListening: document.getElementById('startListening'),
             stopListening: document.getElementById('stopListening'),
             startCamera: document.getElementById('startCamera'),
             stopCamera: document.getElementById('stopCamera'),
+            switchCamera: document.getElementById('switchCamera'), // Added switch camera
+            textInput: document.getElementById('textInput'), // Added text input
+            translateText: document.getElementById('translateText'), // Added translate button
+            clearText: document.getElementById('clearText'), // Added clear button
+            textTranslationOutput: document.getElementById('textTranslationOutput'), // Added text output
             voiceStatus: document.getElementById('voiceStatus'),
             cameraStatus: document.getElementById('cameraStatus'),
             originalText: document.getElementById('originalText'),
@@ -738,21 +744,43 @@ class RealTimeTranslator {
     setupEventListeners() {
         // Mode switching
         this.elements.voiceMode?.addEventListener('click', () => this.switchMode('voice'));
+        this.elements.textMode?.addEventListener('click', () => this.switchMode('text')); // Added text mode
         this.elements.cameraMode?.addEventListener('click', () => this.switchMode('camera'));
         
         // Language selection
+        this.elements.sourceLanguage?.addEventListener('change', (e) => {
+            this.state.sourceLanguage = e.target.value;
+            console.log('Source language:', this.state.sourceLanguage);
+        });
+        
         this.elements.targetLanguage?.addEventListener('change', (e) => {
             this.state.targetLanguage = e.target.value;
             console.log('Target language:', this.state.targetLanguage);
         });
         
+        // Swap languages button
+        this.elements.swapLanguages?.addEventListener('click', () => this.swapLanguages());
+        
         // Voice controls
         this.elements.startListening?.addEventListener('click', () => this.startListening());
         this.elements.stopListening?.addEventListener('click', () => this.stopListening());
         
+        // Text mode controls
+        this.elements.translateText?.addEventListener('click', () => this.translateTextInput());
+        this.elements.clearText?.addEventListener('click', () => this.clearTextInput());
+        
+        // Enter key in text input
+        this.elements.textInput?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                e.preventDefault();
+                this.translateTextInput();
+            }
+        });
+        
         // Camera controls
         this.elements.startCamera?.addEventListener('click', () => this.startCamera());
         this.elements.stopCamera?.addEventListener('click', () => this.stopCamera());
+        this.elements.switchCamera?.addEventListener('click', () => this.switchCamera());
         
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
@@ -763,6 +791,97 @@ class RealTimeTranslator {
                 }
             }
         });
+    }
+
+    /**
+     * Swap source and target languages
+     */
+    swapLanguages() {
+        // Don't swap if source is auto-detect
+        if (this.state.sourceLanguage === 'auto') {
+            this.showWarning('Cannot swap when source is set to Auto Detect');
+            return;
+        }
+        
+        const tempLang = this.state.sourceLanguage;
+        this.state.sourceLanguage = this.state.targetLanguage;
+        this.state.targetLanguage = tempLang;
+        
+        // Update dropdowns
+        if (this.elements.sourceLanguage) {
+            this.elements.sourceLanguage.value = this.state.sourceLanguage;
+        }
+        if (this.elements.targetLanguage) {
+            this.elements.targetLanguage.value = this.state.targetLanguage;
+        }
+        
+        console.log(`Languages swapped: ${this.state.sourceLanguage} ⇄ ${this.state.targetLanguage}`);
+        
+        // Show confirmation
+        this.showStatus(`Languages swapped`, 'voiceStatus');
+        setTimeout(() => {
+            if (this.state.currentMode === 'voice') {
+                this.showStatus('Ready to listen', 'voiceStatus');
+            }
+        }, 2000);
+    }
+
+    /**
+     * Translate text from input field
+     */
+    async translateTextInput() {
+        const text = this.elements.textInput?.value.trim();
+        
+        if (!text) {
+            this.showWarning('Please enter some text to translate');
+            return;
+        }
+        
+        try {
+            // Show loading state
+            this.updateDisplay('textTranslationOutput', 'Translating...');
+            this.elements.translateText.disabled = true;
+            
+            // Translate
+            const translation = await this.translateText(text, this.state.targetLanguage, this.state.sourceLanguage);
+            
+            if (translation) {
+                let output = translation.translated_text;
+                
+                // Add detected language info if auto-detect was used
+                if (this.state.sourceLanguage === 'auto' && translation.source_language) {
+                    const languageNames = {
+                        'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
+                        'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese',
+                        'ko': 'Korean', 'zh': 'Chinese', 'ar': 'Arabic', 'hi': 'Hindi'
+                    };
+                    const detectedName = languageNames[translation.source_language] || translation.source_language;
+                    output = `[Detected: ${detectedName}]\n\n${output}`;
+                }
+                
+                this.updateDisplay('textTranslationOutput', output);
+                
+                // Update stats
+                this.performanceMonitor.totalTranslations++;
+                this.updatePerformanceDisplay();
+            }
+            
+        } catch (error) {
+            console.error('Translation error:', error);
+            this.updateDisplay('textTranslationOutput', 'Translation failed: ' + error.message);
+        } finally {
+            this.elements.translateText.disabled = false;
+        }
+    }
+
+    /**
+     * Clear text input and output
+     */
+    clearTextInput() {
+        if (this.elements.textInput) {
+            this.elements.textInput.value = '';
+        }
+        this.updateDisplay('textTranslationOutput', 'Translation will appear here...');
     }
 
     /**
@@ -873,7 +992,7 @@ class RealTimeTranslator {
             const data = await response.json();
             
             if (data.languages) {
-                this.updateLanguageDropdown(data.languages);
+                this.updateLanguageDropdowns(data.languages);
             }
             
         } catch (error) {
@@ -883,22 +1002,40 @@ class RealTimeTranslator {
     }
 
     /**
-     * Update language dropdown
+     * Update language dropdowns (both source and target)
      */
-    updateLanguageDropdown(languages) {
-        if (!this.elements.targetLanguage) return;
+    updateLanguageDropdowns(languages) {
+        // Update source language dropdown
+        if (this.elements.sourceLanguage) {
+            const currentSource = this.elements.sourceLanguage.value;
+            this.elements.sourceLanguage.innerHTML = '<option value="auto">Auto Detect</option>';
+            
+            Object.entries(languages).forEach(([code, name]) => {
+                const option = document.createElement('option');
+                option.value = code;
+                option.textContent = name;
+                if (code === currentSource) {
+                    option.selected = true;
+                }
+                this.elements.sourceLanguage.appendChild(option);
+            });
+        }
         
-        this.elements.targetLanguage.innerHTML = '';
-        
-        Object.entries(languages).forEach(([code, name]) => {
-            const option = document.createElement('option');
-            option.value = code;
-            option.textContent = name;
-            if (code === this.state.targetLanguage) {
-                option.selected = true;
-            }
-            this.elements.targetLanguage.appendChild(option);
-        });
+        // Update target language dropdown
+        if (this.elements.targetLanguage) {
+            const currentTarget = this.elements.targetLanguage.value;
+            this.elements.targetLanguage.innerHTML = '';
+            
+            Object.entries(languages).forEach(([code, name]) => {
+                const option = document.createElement('option');
+                option.value = code;
+                option.textContent = name;
+                if (code === currentTarget || (currentTarget === '' && code === 'es')) {
+                    option.selected = true;
+                }
+                this.elements.targetLanguage.appendChild(option);
+            });
+        }
     }
 
     /**
@@ -906,6 +1043,7 @@ class RealTimeTranslator {
      */
     useDefaultLanguages() {
         const defaultLanguages = {
+            'en': 'English',
             'es': 'Spanish',
             'fr': 'French',
             'de': 'German',
@@ -919,7 +1057,7 @@ class RealTimeTranslator {
             'hi': 'Hindi'
         };
         
-        this.updateLanguageDropdown(defaultLanguages);
+        this.updateLanguageDropdowns(defaultLanguages);
     }
 
     /**
@@ -971,15 +1109,20 @@ class RealTimeTranslator {
     updateModeUI(mode) {
         // Update buttons
         this.elements.voiceMode?.classList.toggle('active', mode === 'voice');
+        this.elements.textMode?.classList.toggle('active', mode === 'text');
         this.elements.cameraMode?.classList.toggle('active', mode === 'camera');
         
         // Show/hide interfaces
         this.elements.voiceInterface?.classList.toggle('hidden', mode !== 'voice');
+        this.elements.textInterface?.classList.toggle('hidden', mode !== 'text');
         this.elements.cameraInterface?.classList.toggle('hidden', mode !== 'camera');
         
         // Update status
         if (mode === 'voice') {
             this.showStatus('Ready to listen', 'voiceStatus');
+        } else if (mode === 'text') {
+            // Focus on text input
+            setTimeout(() => this.elements.textInput?.focus(), 100);
         } else {
             this.showStatus('Ready to detect objects', 'cameraStatus');
         }
@@ -1137,7 +1280,7 @@ class RealTimeTranslator {
             this.updateDisplay('translatedText', 'Translating...');
             
             // Translate
-            const translation = await this.translateText(text);
+            const translation = await this.translateText(text, this.state.targetLanguage, this.state.sourceLanguage);
             
             if (translation) {
                 this.updateDisplay('translatedText', translation.translated_text);
@@ -1147,6 +1290,7 @@ class RealTimeTranslator {
                 
                 // Update stats
                 this.performanceMonitor.totalTranslations++;
+                this.updatePerformanceDisplay();
             }
             
         } catch (error) {
@@ -1375,13 +1519,31 @@ class RealTimeTranslator {
                 throw new Error('Camera not supported');
             }
             
+            // Check if we can enumerate devices (for camera switching)
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoDevices = devices.filter(device => device.kind === 'videoinput');
+            
+            console.log(`Found ${videoDevices.length} camera(s)`);
+            
+            // Enable switch button if multiple cameras
+            if (this.elements.switchCamera && videoDevices.length > 1) {
+                this.elements.switchCamera.disabled = false;
+            }
+            
             this.showStatus('Requesting camera access...', 'cameraStatus');
             
-            // Request camera
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: APP_CONFIG.CAMERA,
+            // Request camera with current facing mode (back camera by default)
+            const constraints = {
+                video: {
+                    width: APP_CONFIG.CAMERA.WIDTH,
+                    height: APP_CONFIG.CAMERA.HEIGHT,
+                    frameRate: APP_CONFIG.CAMERA.FRAME_RATE,
+                    facingMode: this.state.currentCameraFacing
+                },
                 audio: false
-            });
+            };
+            
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
             
             // Set stream
             this.state.videoStream = stream;
@@ -1410,9 +1572,62 @@ class RealTimeTranslator {
             
         } catch (error) {
             console.error('❌ Camera error:', error);
-            this.showError('Camera access failed: ' + error.message);
-            this.stopCamera();
+            
+            // If back camera fails, try any available camera
+            if (this.state.currentCameraFacing === 'environment' && !this.state.videoStream) {
+                console.log('Back camera failed, trying any camera...');
+                this.state.currentCameraFacing = 'user';
+                
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        video: true,
+                        audio: false
+                    });
+                    
+                    this.state.videoStream = stream;
+                    this.elements.videoElement.srcObject = stream;
+                    
+                    await new Promise((resolve) => {
+                        this.elements.videoElement.onloadedmetadata = () => {
+                            this.elements.videoElement.play();
+                            resolve();
+                        };
+                    });
+                    
+                    this.setupCanvas();
+                    this.state.isCameraActive = true;
+                    this.updateCameraButtons();
+                    this.startDetection();
+                    
+                    console.log('✅ Camera started with fallback');
+                    this.showWarning('Using front camera (back camera not available)');
+                    
+                } catch (fallbackError) {
+                    this.showError('Camera access failed: ' + fallbackError.message);
+                    this.stopCamera();
+                }
+            } else {
+                this.showError('Camera access failed: ' + error.message);
+                this.stopCamera();
+            }
         }
+    }
+
+    /**
+     * Switch between front and back camera
+     */
+    async switchCamera() {
+        if (!this.state.isCameraActive) return;
+        
+        console.log('Switching camera...');
+        
+        // Toggle facing mode
+        this.state.currentCameraFacing = 
+            this.state.currentCameraFacing === 'environment' ? 'user' : 'environment';
+        
+        // Restart camera with new facing mode
+        await this.stopCamera();
+        await this.startCamera();
     }
 
     /**
@@ -1492,6 +1707,10 @@ class RealTimeTranslator {
         if (this.elements.stopCamera) {
             this.elements.stopCamera.disabled = !this.state.isCameraActive;
             this.elements.stopCamera.classList.toggle('active', this.state.isCameraActive);
+        }
+        
+        if (this.elements.switchCamera) {
+            this.elements.switchCamera.disabled = !this.state.isCameraActive;
         }
     }
 
@@ -1575,7 +1794,7 @@ class RealTimeTranslator {
             // Translate
             try {
                 console.log('Translating:', topDetection.class);
-                const translation = await this.translateText(topDetection.class);
+                const translation = await this.translateText(topDetection.class, this.state.targetLanguage, 'en');
                 
                 if (translation) {
                     // Store translation
@@ -1830,8 +2049,9 @@ class RealTimeTranslator {
     /**
      * Translate text
      */
-    async translateText(text, targetLang = null) {
+    async translateText(text, targetLang = null, sourceLang = null) {
         const target = targetLang || this.state.targetLanguage;
+        const source = sourceLang || this.state.sourceLanguage || 'auto';
         
         try {
             const apiUrl = APP_CONFIG.API_BASE ? 
@@ -1844,7 +2064,7 @@ class RealTimeTranslator {
                 body: JSON.stringify({
                     text: text,
                     target_language: target,
-                    source_language: 'auto'
+                    source_language: source
                 })
             });
             
@@ -1944,10 +2164,3 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize application
     window.translator = new RealTimeTranslator();
 });
-
-// // ==================== SERVICE WORKER (Optional) ====================
-// if ('serviceWorker' in navigator) {
-//     navigator.serviceWorker.register('/sw.js').catch(e => {
-//         console.log('Service worker registration failed:', e);
-//     });
-// }
