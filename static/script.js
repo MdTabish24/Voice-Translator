@@ -4,10 +4,33 @@
  */
 
 // ==================== CONFIGURATION ====================
+// Dynamically detect the API base URL
+const getApiBase = () => {
+    // If we're on Railway or production
+    if (window.location.hostname.includes('railway.app') || 
+        window.location.hostname.includes('herokuapp.com')) {
+        return ''; // Use same origin
+    }
+    
+    // For local development
+    if (window.location.hostname === 'localhost' || 
+        window.location.hostname === '127.0.0.1') {
+        // Check if we're already on port 8080 (accessing through Flask)
+        if (window.location.port === '8080') {
+            return ''; // Same origin
+        }
+        // Otherwise, explicitly use port 8080
+        return 'http://127.0.0.1:8080';
+    }
+    
+    // Default to same origin
+    return '';
+};
+
 const APP_CONFIG = {
-    API_BASE: 'http://127.0.0.1:5000',
+    API_BASE: getApiBase(),
     DETECTION: {
-        DEFAULT_MODEL: 'yolo', // 'yolo', 'mediapipe', 'coco-enhanced'
+        DEFAULT_MODEL: 'yolo',
         MIN_CONFIDENCE: 0.3,
         DETECTION_INTERVAL: 500,
         MAX_OBJECTS: 10,
@@ -27,6 +50,11 @@ const APP_CONFIG = {
         FRAME_RATE: { ideal: 30, min: 15 }
     }
 };
+
+console.log('API Base URL:', APP_CONFIG.API_BASE || 'Same origin');
+
+
+
 
 // ==================== ADVANCED DETECTION MODELS ====================
 class UniversalObjectDetector {
