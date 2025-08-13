@@ -8,6 +8,7 @@ import logging
 import time
 import re
 import json
+import os
 import hashlib
 from functools import wraps, lru_cache
 from datetime import datetime
@@ -515,7 +516,6 @@ if __name__ == '__main__':
     logger.info("Real-Time Translator API v2.0 - Starting...")
     logger.info("="*50)
     
-    # Test translator
     try:
         test_result = translation_manager.translator.translate("Hello", dest='es')
         logger.info(f"✅ Translation service working: Hello -> {test_result.text}")
@@ -523,18 +523,20 @@ if __name__ == '__main__':
         logger.error(f"❌ Translation service test failed: {e}")
         logger.warning("Server will start but translations may not work")
     
-    # Log configuration
     logger.info("Configuration:")
-    logger.info(f"  - Host: {Config.HOST}")
-    logger.info(f"  - Port: {Config.PORT}")
+    logger.info(f"  - Host: 0.0.0.0")
+    logger.info(f"  - Port: {os.environ.get('PORT', 5000)}")
     logger.info(f"  - Debug: {Config.DEBUG}")
     logger.info(f"  - CORS: Enabled for all origins")
     logger.info("="*50)
     
     # Run application
     app.run(
-        host=Config.HOST,
-        port=Config.PORT,
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000)),
         debug=Config.DEBUG,
         threaded=True
+    )
+
+
     )
