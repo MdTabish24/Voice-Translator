@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Translator</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>Real-Time Translator</h1>
+            <p>Translate speech and objects in real-time</p>
+        </header>
+
+        <main>
+            <!-- Mode Toggle -->
+            <div class="mode-selector">
+                <button id="voiceMode" class="mode-btn active">Voice Mode</button>
+                <button id="cameraMode" class="mode-btn">Camera Mode</button>
+            </div>
+
+            <!-- Language Selection -->
+            <div class="language-selector">
+                <label for="targetLanguage">Translate to:</label>
+                <select id="targetLanguage">
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                    <option value="de">German</option>
+                    <option value="it">Italian</option>
+                    <option value="pt">Portuguese</option>
+                    <option value="ru">Russian</option>
+                    <option value="ja">Japanese</option>
+                    <option value="ko">Korean</option>
+                    <option value="zh">Chinese</option>
+                    <option value="ar">Arabic</option>
+                </select>
+            </div>
+
+            <!-- Voice Mode Interface -->
+            <div id="voiceInterface" class="mode-interface">
+                <div class="controls">
+                    <button id="startListening" class="control-btn">Start Listening</button>
+                    <button id="stopListening" class="control-btn" disabled>Stop Listening</button>
+                </div>
+                <div class="status" id="voiceStatus">Ready to listen</div>
+                <div class="text-display">
+                    <div class="original-text">
+                        <h3>Original Text:</h3>
+                        <p id="originalText">Speak something...</p>
+                    </div>
+                    <div class="translated-text">
+                        <h3>Translation:</h3>
+                        <p id="translatedText">Translation will appear here...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Camera Mode Interface -->
+            <div id="cameraInterface" class="mode-interface hidden">
+                <div class="controls">
+                    <button id="startCamera" class="control-btn">Start Camera</button>
+                    <button id="stopCamera" class="control-btn" disabled>Stop Camera</button>
+                </div>
+                <div class="status" id="cameraStatus">Ready to start camera</div>
+                <div class="camera-container">
+                    <video id="videoElement" autoplay muted></video>
+                    <canvas id="detectionCanvas"></canvas>
+                </div>
+                <div class="detection-results">
+                    <h3>Detected Objects:</h3>
+                    <div id="detectedObjects">Point camera at objects to detect them...</div>
+                </div>
+            </div>
+
+            <!-- Error Messages -->
+            <div id="errorMessage" class="error-message hidden"></div>
+        </main>
+    </div>
+
+    <!-- TensorFlow.js and COCO-SSD Model -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
+
+    <script src="/static/script.js"></script>
+</body>
+
+</html>
