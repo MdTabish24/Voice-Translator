@@ -1826,24 +1826,29 @@ class RealTimeTranslator {
         try {
             this.showStatus('Capturing and processing...', 'ocrStatus');
             
-            // Capture frame with better quality
+            // Capture frame with better quality and cropping
             const canvas = document.createElement('canvas');
             const video = this.elements.ocrVideoElement;
             
-            // Use higher resolution for better OCR
-            canvas.width = video.videoWidth || 1280;
-            canvas.height = video.videoHeight || 720;
+            // Crop to center area for better OCR (remove UI elements)
+            const cropWidth = video.videoWidth * 0.8;
+            const cropHeight = video.videoHeight * 0.6;
+            const cropX = (video.videoWidth - cropWidth) / 2;
+            const cropY = (video.videoHeight - cropHeight) / 2;
+            
+            canvas.width = cropWidth;
+            canvas.height = cropHeight;
             
             const ctx = canvas.getContext('2d');
             
-            // Improve image quality for OCR
-            ctx.filter = 'contrast(1.2) brightness(1.1)';
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            // Enhanced image processing for OCR
+            ctx.filter = 'contrast(1.5) brightness(1.2) saturate(0)';
+            ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
             
-            const imageData = canvas.toDataURL('image/jpeg', 0.95);
+            const finalImageData = canvas.toDataURL('image/jpeg', 0.98);
             
             // Process OCR
-            const result = await this.processOCR(imageData);
+            const result = await this.processOCR(finalImageData);
             this.displayOcrResult(result);
             
         } catch (error) {
