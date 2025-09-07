@@ -1789,7 +1789,11 @@ class RealTimeTranslator {
             this.showStatus('Starting camera...', 'ocrStatus');
             
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { width: 640, height: 480 },
+                video: { 
+                    width: 640, 
+                    height: 480,
+                    facingMode: 'environment' // Use back camera by default
+                },
                 audio: false
             });
             
