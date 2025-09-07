@@ -1,759 +1,92 @@
-/**
- * Real-Time Translator - Complete Enhanced Version
- * With Advanced Object Detection (YOLO, MediaPipe, Enhanced COCO-SSD)
- * Updated with Text Mode, Language Swap, and Camera Switching
- */
-
-// ==================== CONFIGURATION ====================
-const getApiBase = () => {
-    // If we're on production (Render, Railway, Heroku)
-    if (window.location.hostname.includes('onrender.com') ||
-        window.location.hostname.includes('railway.app') ||
-        window.location.hostname.includes('herokuapp.com')) {
-        return ''; // Use same origin
-    }
-
-    // For local development
-    if (window.location.hostname === 'localhost' ||
-        window.location.hostname === '127.0.0.1') {
-        // Check if we're already on port 5000 (accessing through Flask)
-        if (window.location.port === '5000') {
-            return ''; // Same origin
-        }
-        // Otherwise, explicitly use port 5000
-        return 'http://127.0.0.1:5000';
-    }
-
-    // Default to same origin
-    return '';
-};
-
-// ==================== CONFIGURATION ====================
+// Real-Time Translator - Complete Implementation
 const APP_CONFIG = {
-    // Fix the API base URL for production deployment
-    API_BASE: (window.location.hostname.includes('onrender.com') || 
-               window.location.hostname.includes('railway.app') ||
-               window.location.hostname.includes('herokuapp.com'))
-        ? '' // On production, use same origin
-        : 'http://127.0.0.1:5000', // For local development, use port 5000
-
-    DETECTION: {
-        DEFAULT_MODEL: 'yolo',
-        MIN_CONFIDENCE: 0.3,
-        DETECTION_INTERVAL: 500,
-        MAX_OBJECTS: 10,
-        SMOOTHING_FRAMES: 3,
-        TRANSLATION_DELAY: 3000
-    },
-    VOICE: {
-        LANGUAGE: 'en-US',
-        CONTINUOUS: true,
-        INTERIM_RESULTS: true,
-        MAX_ALTERNATIVES: 3
-    },
-    CAMERA: {
-        WIDTH: { ideal: 1280, min: 640 },
-        HEIGHT: { ideal: 720, min: 480 },
-        FACING_MODE: 'environment', // Default to back camera
-        FRAME_RATE: { ideal: 30, min: 15 }
-    }
+    API_BASE: window.location.hostname.includes('onrender.com') ? '' : 'http://127.0.0.1:5000',
+    DETECTION_INTERVAL: 1000,
+    MAX_TEXT_LENGTH: 5000,
+    SPEECH_TIMEOUT: 10000
 };
 
-console.log('Running on:', window.location.hostname);
-console.log('API Base:', APP_CONFIG.API_BASE || 'same origin');
-console.log('Port:', window.location.port);
-
-// ==================== ADVANCED DETECTION MODELS ====================
-class UniversalObjectDetector {
-    constructor() {
-        this.models = {
-            yolo: null,
-            mediapipe: null,
-            cocoEnhanced: null,
-            current: null
-        };
-
-        this.modelStatus = {
-            yolo: 'not-loaded',
-            mediapipe: 'not-loaded',
-            cocoEnhanced: 'not-loaded'
-        };
-
-        this.detectionCache = new Map();
-        this.performanceStats = {
-            fps: 0,
-            lastFrameTime: 0,
-            detectionCount: 0
-        };
-    }
-
-    /**
-     * Initialize all available models
-     */
-    async initialize() {
-        console.log('🚀 Initializing Universal Object Detector...');
-
-        // Try to load models in parallel
-        const modelPromises = [
-            this.loadYOLO().catch(e => console.warn('YOLO failed:', e)),
-            this.loadMediaPipe().catch(e => console.warn('MediaPipe failed:', e)),
-            this.loadEnhancedCOCO().catch(e => console.warn('Enhanced COCO failed:', e))
-        ];
-
-        await Promise.allSettled(modelPromises);
-
-        // Select best available model
-        this.selectBestModel();
-
-        return this.models.current !== null;
-    }
-
-    /**
-     * Load YOLO Model (Best Accuracy)
-     */
-    async loadYOLO() {
-        try {
-            console.log('📦 Loading YOLO model...');
-
-            // Load YOLOv5 or YOLOv8
-            if (typeof tf === 'undefined') {
-                throw new Error('TensorFlow.js not loaded');
-            }
-
-            // Custom YOLO implementation
-            this.models.yolo = {
-                model: await this.loadYOLOModel(),
-                type: 'yolo',
-                detect: async (video) => await this.detectWithYOLO(video)
-            };
-
-            this.modelStatus.yolo = 'loaded';
-            console.log('✅ YOLO model loaded successfully');
-
-        } catch (error) {
-            this.modelStatus.yolo = 'failed';
-            throw error;
-        }
-    }
-
-    /**
-     * Load actual YOLO model
-     */
-    async loadYOLOModel() {
-        // Try YOLOv5 first
-        try {
-            const modelUrl = 'https://raw.githubusercontent.com/ultralytics/yolov5/master/models/yolov5s.json';
-            return await tf.loadGraphModel(modelUrl);
-        } catch (e) {
-            // Fallback to COCO-SSD with YOLO-like processing
-            console.log('Using enhanced COCO-SSD as YOLO fallback');
-            return await cocoSsd.load({
-                base: 'mobilenet_v2'
-            });
-        }
-    }
-
-    /**
-     * YOLO Detection Implementation
-     */
-    async detectWithYOLO(video) {
-        if (!this.models.yolo.model) return [];
-
-        try {
-            // If using actual YOLO
-            if (this.models.yolo.model.predict) {
-                return await this.yoloInference(video);
-            } else {
-                // If using COCO-SSD fallback
-                const predictions = await this.models.yolo.model.detect(video, 20, 0.25);
-                return this.enhancePredictions(predictions);
-            }
-        } catch (error) {
-            console.error('YOLO detection error:', error);
-            return [];
-        }
-    }
-
-    /**
-     * YOLO specific inference
-     */
-    async yoloInference(video) {
-        const [modelWidth, modelHeight] = [640, 640];
-
-        // Preprocess
-        const input = tf.tidy(() => {
-            const img = tf.browser.fromPixels(video);
-            const resized = tf.image.resizeBilinear(img, [modelWidth, modelHeight]);
-            const normalized = resized.div(255.0);
-            return normalized.expandDims(0);
-        });
-
-        // Run inference
-        const output = await this.models.yolo.model.predict(input);
-
-        // Process output
-        const predictions = await this.processYOLOOutput(output);
-
-        // Cleanup
-        input.dispose();
-        output.dispose();
-
-        return predictions;
-    }
-
-    /**
-     * Load MediaPipe (Google's Advanced Detection)
-     */
-    async loadMediaPipe() {
-        try {
-            console.log('📦 Loading MediaPipe model...');
-
-            // Check if MediaPipe is available
-            if (typeof window.MediaPipeObjectDetector === 'undefined') {
-                // Try dynamic import
-                const vision = await this.loadMediaPipeLibrary();
-
-                if (!vision) {
-                    throw new Error('MediaPipe library not available');
-                }
-
-                const config = {
-                    baseOptions: {
-                        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/latest/efficientdet_lite0.tflite',
-                        delegate: 'GPU'
-                    },
-                    scoreThreshold: 0.3,
-                    maxResults: 15
-                };
-
-                this.models.mediapipe = {
-                    model: await vision.ObjectDetector.createFromOptions(config),
-                    type: 'mediapipe',
-                    detect: async (video) => await this.detectWithMediaPipe(video)
-                };
-
-                this.modelStatus.mediapipe = 'loaded';
-                console.log('✅ MediaPipe model loaded successfully');
-            }
-        } catch (error) {
-            this.modelStatus.mediapipe = 'failed';
-            throw error;
-        }
-    }
-
-    /**
-     * Load MediaPipe library dynamically
-     */
-    async loadMediaPipeLibrary() {
-        try {
-            return await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest');
-        } catch (e) {
-            console.warn('MediaPipe dynamic import failed:', e);
-            return null;
-        }
-    }
-
-    /**
-     * MediaPipe Detection
-     */
-    async detectWithMediaPipe(video) {
-        if (!this.models.mediapipe.model) return [];
-
-        try {
-            const results = await this.models.mediapipe.model.detectForVideo(
-                video,
-                performance.now()
-            );
-
-            return results.detections.map(det => ({
-                class: det.categories[0].categoryName,
-                score: det.categories[0].score,
-                bbox: [
-                    det.boundingBox.originX,
-                    det.boundingBox.originY,
-                    det.boundingBox.width,
-                    det.boundingBox.height
-                ]
-            }));
-        } catch (error) {
-            console.error('MediaPipe detection error:', error);
-            return [];
-        }
-    }
-
-    /**
-     * Load Enhanced COCO-SSD with Multiple Models
-     */
-    async loadEnhancedCOCO() {
-        try {
-            console.log('📦 Loading Enhanced COCO-SSD...');
-
-            if (typeof cocoSsd === 'undefined') {
-                throw new Error('COCO-SSD library not loaded');
-            }
-
-            // Load both lite and full models
-            const [liteModel, fullModel] = await Promise.allSettled([
-                cocoSsd.load({ base: 'lite_mobilenet_v2' }),
-                cocoSsd.load({ base: 'mobilenet_v2' })
-            ]);
-
-            this.models.cocoEnhanced = {
-                lite: liteModel.status === 'fulfilled' ? liteModel.value : null,
-                full: fullModel.status === 'fulfilled' ? fullModel.value : null,
-                type: 'coco-enhanced',
-                detect: async (video) => await this.detectWithEnhancedCOCO(video)
-            };
-
-            this.modelStatus.cocoEnhanced = 'loaded';
-            console.log('✅ Enhanced COCO-SSD loaded successfully');
-
-        } catch (error) {
-            this.modelStatus.cocoEnhanced = 'failed';
-            throw error;
-        }
-    }
-
-    /**
-     * Enhanced COCO Detection with Multiple Models
-     */
-    async detectWithEnhancedCOCO(video) {
-        const results = [];
-
-        try {
-            // Use full model if available, otherwise lite
-            const model = this.models.cocoEnhanced.full || this.models.cocoEnhanced.lite;
-
-            if (!model) return [];
-
-            // Detect with multiple confidence levels
-            const [highConf, medConf, lowConf] = await Promise.all([
-                model.detect(video, 10, 0.5),
-                model.detect(video, 15, 0.35),
-                model.detect(video, 20, 0.25)
-            ]);
-
-            // Combine and deduplicate
-            const allDetections = [...highConf, ...medConf, ...lowConf];
-            return this.deduplicateDetections(allDetections);
-
-        } catch (error) {
-            console.error('Enhanced COCO detection error:', error);
-            return [];
-        }
-    }
-
-    /**
-     * Select best available model
-     */
-    selectBestModel() {
-        // Priority: YOLO > MediaPipe > Enhanced COCO
-        if (this.modelStatus.yolo === 'loaded') {
-            this.models.current = this.models.yolo;
-            console.log('🎯 Selected YOLO as primary detector');
-        } else if (this.modelStatus.mediapipe === 'loaded') {
-            this.models.current = this.models.mediapipe;
-            console.log('🎯 Selected MediaPipe as primary detector');
-        } else if (this.modelStatus.cocoEnhanced === 'loaded') {
-            this.models.current = this.models.cocoEnhanced;
-            console.log('🎯 Selected Enhanced COCO as primary detector');
-        } else {
-            console.error('❌ No detection models available!');
-        }
-    }
-
-    /**
-     * Universal detect method
-     */
-    async detect(video) {
-        if (!this.models.current) {
-            console.error('No detection model available');
-            return [];
-        }
-
-        const startTime = performance.now();
-
-        try {
-            // Get raw detections
-            const detections = await this.models.current.detect(video);
-
-            // Apply enhancements
-            const enhanced = this.enhancePredictions(detections);
-
-            // Apply temporal smoothing
-            const smoothed = this.applySmoothing(enhanced);
-
-            // Update performance stats
-            this.updatePerformance(performance.now() - startTime);
-
-            return smoothed;
-
-        } catch (error) {
-            console.error('Detection error:', error);
-            return [];
-        }
-    }
-
-    /**
-     * Enhance predictions with additional processing
-     */
-    enhancePredictions(predictions) {
-        return predictions.map(pred => ({
-            ...pred,
-            id: this.generateId(pred),
-            timestamp: Date.now(),
-            confidence: pred.score,
-            enhanced: true,
-            category: this.categorizeObject(pred.class)
-        }));
-    }
-
-    /**
-     * Apply temporal smoothing
-     */
-    applySmoothing(detections) {
-        const smoothed = [];
-        const currentTime = Date.now();
-
-        // Update cache
-        detections.forEach(det => {
-            const key = `${det.class}_${Math.round(det.bbox[0]/50)}`;
-
-            if (!this.detectionCache.has(key)) {
-                this.detectionCache.set(key, {
-                    detections: [],
-                    lastSeen: currentTime
-                });
-            }
-
-            const cached = this.detectionCache.get(key);
-            cached.detections.push(det);
-            cached.lastSeen = currentTime;
-
-            // Keep only recent detections
-            if (cached.detections.length > APP_CONFIG.DETECTION.SMOOTHING_FRAMES) {
-                cached.detections.shift();
-            }
-        });
-
-        // Clean old cache entries
-        for (const [key, cached] of this.detectionCache.entries()) {
-            if (currentTime - cached.lastSeen > 2000) {
-                this.detectionCache.delete(key);
-            } else if (cached.detections.length >= 2) {
-                // Average the detections
-                const avgDetection = this.averageDetections(cached.detections);
-                smoothed.push(avgDetection);
-            }
-        }
-
-        return smoothed;
-    }
-
-    /**
-     * Average multiple detections
-     */
-    averageDetections(detections) {
-        const avg = { ...detections[0] };
-
-        // Average bbox
-        avg.bbox = [0, 0, 0, 0];
-        detections.forEach(det => {
-            det.bbox.forEach((val, i) => {
-                avg.bbox[i] += val / detections.length;
-            });
-        });
-
-        // Average score
-        avg.score = detections.reduce((sum, det) => sum + det.score, 0) / detections.length;
-        avg.confidence = avg.score;
-
-        return avg;
-    }
-
-    /**
-     * Deduplicate detections
-     */
-    deduplicateDetections(detections) {
-        const unique = [];
-        const seen = new Set();
-
-        detections.sort((a, b) => b.score - a.score);
-
-        detections.forEach(det => {
-            const key = `${det.class}_${Math.round(det.bbox[0]/100)}_${Math.round(det.bbox[1]/100)}`;
-
-            if (!seen.has(key)) {
-                seen.add(key);
-                unique.push(det);
-            }
-        });
-
-        return unique;
-    }
-
-    /**
-     * Process YOLO output
-     */
-    async processYOLOOutput(output) {
-        // YOLO specific output processing
-        const predictions = [];
-        const outputData = await output.array();
-
-        // Process based on YOLO format
-        // This is simplified - actual YOLO output processing is more complex
-        for (let i = 0; i < outputData[0].length; i++) {
-            const detection = outputData[0][i];
-            if (detection[4] > APP_CONFIG.DETECTION.MIN_CONFIDENCE) {
-                predictions.push({
-                    bbox: [detection[0], detection[1], detection[2], detection[3]],
-                    score: detection[4],
-                    class: this.getClassName(detection[5])
-                });
-            }
-        }
-
-        return predictions;
-    }
-
-    /**
-     * Get class name from index
-     */
-    getClassName(index) {
-        const classes = [
-            'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck',
-            'boat', 'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench',
-            'bird', 'cat', 'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra',
-            'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
-            'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove',
-            'skateboard', 'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup',
-            'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange',
-            'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch',
-            'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse',
-            'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink',
-            'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier',
-            'toothbrush'
-        ];
-
-        return classes[index] || `Object_${index}`;
-    }
-
-    /**
-     * Categorize objects
-     */
-    categorizeObject(className) {
-        const categories = {
-            'person': 'People',
-            'bicycle': 'Vehicle',
-            'car': 'Vehicle',
-            'motorcycle': 'Vehicle',
-            'airplane': 'Vehicle',
-            'bus': 'Vehicle',
-            'train': 'Vehicle',
-            'truck': 'Vehicle',
-            'boat': 'Vehicle',
-            'bird': 'Animal',
-            'cat': 'Animal',
-            'dog': 'Animal',
-            'horse': 'Animal',
-            'sheep': 'Animal',
-            'cow': 'Animal',
-            'elephant': 'Animal',
-            'bear': 'Animal',
-            'zebra': 'Animal',
-            'giraffe': 'Animal',
-            'chair': 'Furniture',
-            'couch': 'Furniture',
-            'bed': 'Furniture',
-            'dining table': 'Furniture',
-            'toilet': 'Furniture',
-            'tv': 'Electronics',
-            'laptop': 'Electronics',
-            'mouse': 'Electronics',
-            'remote': 'Electronics',
-            'keyboard': 'Electronics',
-            'cell phone': 'Electronics',
-            'book': 'Object',
-            'clock': 'Object',
-            'vase': 'Object',
-            'scissors': 'Object',
-            'teddy bear': 'Toy',
-            'bottle': 'Container',
-            'wine glass': 'Container',
-            'cup': 'Container',
-            'bowl': 'Container',
-            'banana': 'Food',
-            'apple': 'Food',
-            'sandwich': 'Food',
-            'orange': 'Food',
-            'broccoli': 'Food',
-            'carrot': 'Food',
-            'hot dog': 'Food',
-            'pizza': 'Food',
-            'donut': 'Food',
-            'cake': 'Food'
-        };
-
-        return categories[className] || 'Miscellaneous';
-    }
-
-    /**
-     * Generate unique ID
-     */
-    generateId(detection) {
-        return `${detection.class}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    }
-
-    /**
-     * Update performance metrics
-     */
-    updatePerformance(detectionTime) {
-        const currentTime = Date.now();
-
-        if (this.performanceStats.lastFrameTime) {
-            const timeDiff = currentTime - this.performanceStats.lastFrameTime;
-            this.performanceStats.fps = Math.round(1000 / timeDiff);
-        }
-
-        this.performanceStats.lastFrameTime = currentTime;
-        this.performanceStats.detectionCount++;
-        this.performanceStats.lastDetectionTime = detectionTime;
-    }
-
-    /**
-     * Get performance stats
-     */
-    getPerformanceStats() {
-        return {
-            ...this.performanceStats,
-            modelType: this.models.current?.type || 'none',
-            cacheSize: this.detectionCache.size
-        };
-    }
-}
-
-// ==================== MAIN APPLICATION ====================
 class RealTimeTranslator {
     constructor() {
-        // State management
         this.state = {
             currentMode: 'voice',
-            sourceLanguage: 'auto', // Added source language
             targetLanguage: 'es',
             isListening: false,
             isCameraActive: false,
             isOcrCameraActive: false,
-            isSpeaking: false,
-            lastTranslation: null,
             recognition: null,
-            videoStream: null,
-            currentCameraFacing: 'environment', // Track current camera (back camera default)
+            detectionModel: null,
             detectionInterval: null,
-            translationQueue: [],
-            processedObjects: new Set()
+            currentStream: null,
+            ocrStream: null
         };
 
-        // DOM elements
         this.elements = {
+            // Mode buttons
             voiceMode: document.getElementById('voiceMode'),
-            textMode: document.getElementById('textMode'), // Added text mode
+            textMode: document.getElementById('textMode'),
             cameraMode: document.getElementById('cameraMode'),
-            sourceLanguage: document.getElementById('sourceLanguage'), // Added source language
-            targetLanguage: document.getElementById('targetLanguage'),
-            swapLanguages: document.getElementById('swapLanguages'), // Added swap button
+            ocrMode: document.getElementById('ocrMode'),
+            
+            // Interfaces
             voiceInterface: document.getElementById('voiceInterface'),
-            textInterface: document.getElementById('textInterface'), // Added text interface
+            textInterface: document.getElementById('textInterface'),
             cameraInterface: document.getElementById('cameraInterface'),
+            ocrInterface: document.getElementById('ocrInterface'),
+            
+            // Common elements
+            targetLanguage: document.getElementById('targetLanguage'),
+            errorMessage: document.getElementById('errorMessage'),
+            
+            // Voice mode elements
             startListening: document.getElementById('startListening'),
             stopListening: document.getElementById('stopListening'),
+            originalText: document.getElementById('originalText'),
+            translatedText: document.getElementById('translatedText'),
+            voiceStatus: document.getElementById('voiceStatus'),
+            
+            // Text mode elements
+            textInput: document.getElementById('textInput'),
+            translateText: document.getElementById('translateText'),
+            clearText: document.getElementById('clearText'),
+            textTranslationOutput: document.getElementById('textTranslationOutput'),
+            
+            // Camera mode elements
             startCamera: document.getElementById('startCamera'),
             stopCamera: document.getElementById('stopCamera'),
-            switchCamera: document.getElementById('switchCamera'),
-            ocrMode: document.getElementById('ocrMode'),
-            ocrInterface: document.getElementById('ocrInterface'),
+            videoElement: document.getElementById('videoElement'),
+            detectedObjects: document.getElementById('detectedObjects'),
+            cameraStatus: document.getElementById('cameraStatus'),
+            
+            // OCR mode elements
             startOcrCamera: document.getElementById('startOcrCamera'),
             captureOcrPhoto: document.getElementById('captureOcrPhoto'),
             stopOcrCamera: document.getElementById('stopOcrCamera'),
             ocrVideoElement: document.getElementById('ocrVideoElement'),
-            ocrStatus: document.getElementById('ocrStatus'),
-            ocrOutput: document.getElementById('ocrOutput')
-            textInput: document.getElementById('textInput'), // Added text input
-            translateText: document.getElementById('translateText'), // Added translate button
-            clearText: document.getElementById('clearText'), // Added clear button
-            textTranslationOutput: document.getElementById('textTranslationOutput'), // Added text output
-            voiceStatus: document.getElementById('voiceStatus'),
-            cameraStatus: document.getElementById('cameraStatus'),
-            originalText: document.getElementById('originalText'),
-            translatedText: document.getElementById('translatedText'),
-            videoElement: document.getElementById('videoElement'),
-            detectionCanvas: document.getElementById('detectionCanvas'),
-            detectedObjects: document.getElementById('detectedObjects'),
-            errorMessage: document.getElementById('errorMessage'),
-            performanceStats: document.getElementById('performanceStats')
+            ocrOutput: document.getElementById('ocrOutput'),
+            ocrStatus: document.getElementById('ocrStatus')
         };
 
-        // Initialize detector
-        this.detector = new UniversalObjectDetector();
-
-        // API configuration
-        this.apiBase = APP_CONFIG.API_BASE;
-
-        // Performance monitoring
-        this.performanceMonitor = {
-            startTime: Date.now(),
-            totalTranslations: 0,
-            totalDetections: 0
-        };
-
-        // Initialize
         this.initializeApp();
     }
 
-    /**
-     * Initialize application
-     */
     async initializeApp() {
         console.log('🚀 Initializing Real-Time Translator...');
-
+        
         try {
-            // Setup event listeners
             this.setupEventListeners();
-
-            // Check browser compatibility
-            this.checkBrowserCompatibility();
-
-            // Initialize error handling
-            this.initializeErrorHandling();
-
-            // Test backend connection
             await this.testBackendConnection();
-
-            // Load supported languages
-            await this.loadSupportedLanguages();
-
-            // Initialize voice recognition
+            await this.loadLanguages();
             this.initializeSpeechRecognition();
-
-            // Initialize text-to-speech
-            this.initializeTextToSpeech();
-
-            // Load detection models
-            await this.loadDetectionModels();
-
-            // Set default mode
             this.switchMode('voice');
-
-            console.log('✅ Application initialized successfully');
-
+            
+            console.log('✅ App initialized successfully');
         } catch (error) {
-            console.error('❌ Initialization failed:', error);
-            this.showError('Failed to initialize application: ' + error.message);
+            console.error('❌ App initialization failed:', error);
+            this.showError('Failed to initialize app: ' + error.message);
         }
     }
 
-    /**
-     * Setup event listeners
-     */
     setupEventListeners() {
         // Mode switching
         this.elements.voiceMode?.addEventListener('click', () => this.switchMode('voice'));
@@ -762,31 +95,20 @@ class RealTimeTranslator {
         this.elements.ocrMode?.addEventListener('click', () => this.switchMode('ocr'));
 
         // Language selection
-        this.elements.sourceLanguage?.addEventListener('change', (e) => {
-            this.state.sourceLanguage = e.target.value;
-            console.log('Source language:', this.state.sourceLanguage);
-        });
-
         this.elements.targetLanguage?.addEventListener('change', (e) => {
             this.state.targetLanguage = e.target.value;
-            console.log('Target language:', this.state.targetLanguage);
+            console.log('Target language changed to:', e.target.value);
         });
-
-        // Swap languages button
-        this.elements.swapLanguages?.addEventListener('click', () => this.swapLanguages());
 
         // Voice controls
         this.elements.startListening?.addEventListener('click', () => this.startListening());
         this.elements.stopListening?.addEventListener('click', () => this.stopListening());
 
-        // Text mode controls
+        // Text controls
         this.elements.translateText?.addEventListener('click', () => this.translateTextInput());
         this.elements.clearText?.addEventListener('click', () => this.clearTextInput());
-
-        // Enter key in text input
         this.elements.textInput?.addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && e.ctrlKey) {
-                e.preventDefault();
                 this.translateTextInput();
             }
         });
@@ -794,418 +116,81 @@ class RealTimeTranslator {
         // Camera controls
         this.elements.startCamera?.addEventListener('click', () => this.startCamera());
         this.elements.stopCamera?.addEventListener('click', () => this.stopCamera());
-        this.elements.switchCamera?.addEventListener('click', () => this.switchCamera());
-        
+
         // OCR controls
         this.elements.startOcrCamera?.addEventListener('click', () => this.startOcrCamera());
         this.elements.captureOcrPhoto?.addEventListener('click', () => this.captureOcrPhoto());
         this.elements.stopOcrCamera?.addEventListener('click', () => this.stopOcrCamera());
-
-        // Keyboard shortcuts
-        document.addEventListener('keydown', (e) => {
-            if (e.key === ' ' && e.ctrlKey) {
-                e.preventDefault();
-                if (this.state.currentMode === 'voice') {
-                    this.state.isListening ? this.stopListening() : this.startListening();
-                }
-            }
-        });
     }
 
-    /**
-     * Swap source and target languages
-     */
-    swapLanguages() {
-        // Don't swap if source is auto-detect
-        if (this.state.sourceLanguage === 'auto') {
-            this.showWarning('Cannot swap when source is set to Auto Detect');
-            return;
-        }
-
-        const tempLang = this.state.sourceLanguage;
-        this.state.sourceLanguage = this.state.targetLanguage;
-        this.state.targetLanguage = tempLang;
-
-        // Update dropdowns
-        if (this.elements.sourceLanguage) {
-            this.elements.sourceLanguage.value = this.state.sourceLanguage;
-        }
-        if (this.elements.targetLanguage) {
-            this.elements.targetLanguage.value = this.state.targetLanguage;
-        }
-
-        console.log(`Languages swapped: ${this.state.sourceLanguage} ⇄ ${this.state.targetLanguage}`);
-
-        // Show confirmation
-        this.showStatus(`Languages swapped`, 'voiceStatus');
-        setTimeout(() => {
-            if (this.state.currentMode === 'voice') {
-                this.showStatus('Ready to listen', 'voiceStatus');
-            }
-        }, 2000);
-    }
-
-    /**
-     * Translate text from input field
-     */
-    async translateTextInput() {
-        const text = this.elements.textInput?.value.trim();
-
-        if (!text) {
-            this.showWarning('Please enter some text to translate');
-            return;
-        }
-
-        try {
-            // Show loading state
-            this.updateDisplay('textTranslationOutput', 'Translating...');
-            this.elements.translateText.disabled = true;
-
-            // Translate
-            const translation = await this.translateText(text, this.state.targetLanguage, this.state.sourceLanguage);
-
-            if (translation) {
-                let output = translation.translated_text;
-
-                // Add detected language info if auto-detect was used
-                if (this.state.sourceLanguage === 'auto' && translation.source_language) {
-                    const languageNames = {
-                        'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
-                        'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese',
-                        'ko': 'Korean', 'zh': 'Chinese', 'ar': 'Arabic', 'hi': 'Hindi'
-                    };
-                    const detectedName = languageNames[translation.source_language] || translation.source_language;
-                    output = `[Detected: ${detectedName}]\n\n${output}`;
-                }
-
-                this.updateDisplay('textTranslationOutput', output);
-
-                // Update stats
-                this.performanceMonitor.totalTranslations++;
-                this.updatePerformanceDisplay();
-            }
-
-        } catch (error) {
-            console.error('Translation error:', error);
-            this.updateDisplay('textTranslationOutput', 'Translation failed: ' + error.message);
-        } finally {
-            this.elements.translateText.disabled = false;
-        }
-    }
-
-    /**
-     * Clear text input and output
-     */
-    clearTextInput() {
-        if (this.elements.textInput) {
-            this.elements.textInput.value = '';
-        }
-        this.updateDisplay('textTranslationOutput', 'Translation will appear here...');
-    }
-
-    /**
-     * Check browser compatibility
-     */
-    checkBrowserCompatibility() {
-        const features = {
-            speechRecognition: 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window,
-            speechSynthesis: 'speechSynthesis' in window,
-            getUserMedia: navigator.mediaDevices && navigator.mediaDevices.getUserMedia,
-            webGL: this.checkWebGLSupport()
-        };
-
-        const missing = Object.entries(features)
-            .filter(([_, supported]) => !supported)
-            .map(([feature]) => feature);
-
-        if (missing.length > 0) {
-            console.warn('Missing features:', missing);
-            this.showWarning(`Some features may not work: ${missing.join(', ')}`);
-        }
-
-        return features;
-    }
-
-    /**
-     * Check WebGL support
-     */
-    checkWebGLSupport() {
-        try {
-            const canvas = document.createElement('canvas');
-            return !!(canvas.getContext('webgl') || canvas.getContext('experimental-webgl'));
-        } catch (e) {
-            return false;
-        }
-    }
-
-    /**
-     * Initialize error handling
-     */
-    initializeErrorHandling() {
-        // Global error handler
-        window.addEventListener('error', (e) => {
-            console.error('Global error:', e);
-            this.showError('An unexpected error occurred');
-        });
-
-        // Unhandled promise rejection
-        window.addEventListener('unhandledrejection', (e) => {
-            console.error('Unhandled promise rejection:', e);
-            this.showError('An operation failed unexpectedly');
-        });
-
-        // Network status
-        window.addEventListener('online', () => {
-            console.log('Back online');
-            this.hideError();
-            this.testBackendConnection();
-        });
-
-        window.addEventListener('offline', () => {
-            console.log('Offline');
-            this.showError('No internet connection', false);
-        });
-    }
-
-    /**
-     * Test backend connection
-     */
-    async testBackendConnection() {
-        try {
-            const apiUrl = APP_CONFIG.API_BASE ?
-                `${APP_CONFIG.API_BASE}/health` :
-                '/health';
-
-            console.log('Testing backend at:', apiUrl);
-
-            const response = await fetch(apiUrl, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            const data = await response.json();
-            console.log('✅ Backend connected:', data.message);
-            return true;
-
-        } catch (error) {
-            console.error('❌ Backend connection failed:', error);
-            this.showError('Cannot connect to translation server. Make sure backend is running.');
-            return false;
-        }
-    }
-
-    /**
-     * Load supported languages
-     */
-    async loadSupportedLanguages() {
-        try {
-            const apiUrl = APP_CONFIG.API_BASE ?
-                `${APP_CONFIG.API_BASE}/languages` :
-                '/languages';
-
-            const response = await fetch(apiUrl);
-            const data = await response.json();
-
-            if (data.languages) {
-                this.updateLanguageDropdowns(data.languages);
-            }
-
-        } catch (error) {
-            console.warn('Failed to load languages:', error);
-            this.useDefaultLanguages();
-        }
-    }
-
-    /**
-     * Update language dropdowns (both source and target)
-     */
-    updateLanguageDropdowns(languages) {
-        // Update source language dropdown
-        if (this.elements.sourceLanguage) {
-            const currentSource = this.elements.sourceLanguage.value;
-            this.elements.sourceLanguage.innerHTML = '<option value="auto">Auto Detect</option>';
-
-            Object.entries(languages).forEach(([code, name]) => {
-                const option = document.createElement('option');
-                option.value = code;
-                option.textContent = name;
-                if (code === currentSource) {
-                    option.selected = true;
-                }
-                this.elements.sourceLanguage.appendChild(option);
-            });
-        }
-
-        // Update target language dropdown
-        if (this.elements.targetLanguage) {
-            const currentTarget = this.elements.targetLanguage.value;
-            this.elements.targetLanguage.innerHTML = '';
-
-            Object.entries(languages).forEach(([code, name]) => {
-                const option = document.createElement('option');
-                option.value = code;
-                option.textContent = name;
-                if (code === currentTarget || (currentTarget === '' && code === 'es')) {
-                    option.selected = true;
-                }
-                this.elements.targetLanguage.appendChild(option);
-            });
-        }
-    }
-
-    /**
-     * Use default languages
-     */
-    useDefaultLanguages() {
-        const defaultLanguages = {
-            'en': 'English',
-            'es': 'Spanish',
-            'fr': 'French',
-            'de': 'German',
-            'it': 'Italian',
-            'pt': 'Portuguese',
-            'ru': 'Russian',
-            'ja': 'Japanese',
-            'ko': 'Korean',
-            'zh': 'Chinese',
-            'ar': 'Arabic',
-            'hi': 'Hindi'
-        };
-
-        this.updateLanguageDropdowns(defaultLanguages);
-    }
-
-    /**
-     * Load detection models
-     */
-    async loadDetectionModels() {
-        try {
-            console.log('Loading object detection models...');
-            this.showStatus('Loading AI models...', 'cameraStatus');
-
-            const success = await this.detector.initialize();
-
-            if (success) {
-                console.log('✅ Detection models loaded');
-                this.showStatus('AI models ready', 'cameraStatus');
-            } else {
-                throw new Error('No models could be loaded');
-            }
-
-        } catch (error) {
-            console.error('❌ Failed to load detection models:', error);
-            this.showError('Object detection unavailable');
-        }
-    }
-
-    /**
-     * Switch application mode
-     */
     switchMode(mode) {
-        // Stop current mode
-        if (this.state.currentMode === 'voice' && this.state.isListening) {
-            this.stopListening();
-        } else if (this.state.currentMode === 'camera' && this.state.isCameraActive) {
-            this.stopCamera();
-        } else if (this.state.currentMode === 'ocr' && this.state.isOcrCameraActive) {
-            this.stopOcrCamera();
-        }
-
-        // Update state
+        console.log(`Switching to ${mode} mode`);
+        
+        // Stop current activities
+        this.stopAllActivities();
+        
         this.state.currentMode = mode;
 
-        // Update UI
-        this.updateModeUI(mode);
-
-        console.log(`Switched to ${mode} mode`);
-    }
-
-    /**
-     * Update mode UI
-     */
-    updateModeUI(mode) {
-        // Update buttons
-        this.elements.voiceMode?.classList.toggle('active', mode === 'voice');
-        this.elements.textMode?.classList.toggle('active', mode === 'text');
-        this.elements.cameraMode?.classList.toggle('active', mode === 'camera');
-        this.elements.ocrMode?.classList.toggle('active', mode === 'ocr');
+        // Update button states
+        document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
+        this.elements[mode + 'Mode']?.classList.add('active');
 
         // Show/hide interfaces
-        this.elements.voiceInterface?.classList.toggle('hidden', mode !== 'voice');
-        this.elements.textInterface?.classList.toggle('hidden', mode !== 'text');
-        this.elements.cameraInterface?.classList.toggle('hidden', mode !== 'camera');
-        this.elements.ocrInterface?.classList.toggle('hidden', mode !== 'ocr');
+        const interfaces = ['voice', 'text', 'camera', 'ocr'];
+        interfaces.forEach(iface => {
+            const element = this.elements[iface + 'Interface'];
+            if (element) {
+                element.classList.toggle('hidden', iface !== mode);
+            }
+        });
 
         // Update status
-        if (mode === 'voice') {
-            this.showStatus('Ready to listen', 'voiceStatus');
-        } else if (mode === 'text') {
-            setTimeout(() => this.elements.textInput?.focus(), 100);
-        } else if (mode === 'camera') {
-            this.showStatus('Ready to detect objects', 'cameraStatus');
-        } else if (mode === 'ocr') {
-            this.showStatus('Ready to start camera for OCR', 'ocrStatus');
+        this.updateStatus(`${mode.charAt(0).toUpperCase() + mode.slice(1)} mode active`);
+    }
+
+    stopAllActivities() {
+        // Stop voice recognition
+        if (this.state.isListening) {
+            this.stopListening();
+        }
+        
+        // Stop camera
+        if (this.state.isCameraActive) {
+            this.stopCamera();
+        }
+        
+        // Stop OCR camera
+        if (this.state.isOcrCameraActive) {
+            this.stopOcrCamera();
         }
     }
 
     // ==================== VOICE MODE ====================
 
-    /**
-     * Initialize speech recognition
-     */
     initializeSpeechRecognition() {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-        if (!SpeechRecognition) {
+        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
             console.warn('Speech recognition not supported');
-            this.enableManualInput();
             return;
         }
 
-        try {
-            this.state.recognition = new SpeechRecognition();
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        this.state.recognition = new SpeechRecognition();
+        
+        this.state.recognition.continuous = true;
+        this.state.recognition.interimResults = true;
+        this.state.recognition.lang = 'auto';
 
-            // Configure
-            Object.assign(this.state.recognition, APP_CONFIG.VOICE);
-
-            // Event handlers
-            this.setupSpeechHandlers();
-
-            console.log('✅ Speech recognition initialized');
-
-        } catch (error) {
-            console.error('❌ Speech recognition initialization failed:', error);
-            this.enableManualInput();
-        }
-    }
-
-    /**
-     * Setup speech recognition handlers
-     */
-    setupSpeechHandlers() {
-        const recognition = this.state.recognition;
-
-        recognition.onstart = () => {
-            console.log('🎤 Listening...');
-            this.state.isListening = true;
-            this.showStatus('Listening... Speak now', 'voiceStatus', true);
-            this.updateVoiceButtons();
+        this.state.recognition.onstart = () => {
+            console.log('🎤 Speech recognition started');
+            this.updateVoiceStatus('Listening... Speak now');
         };
 
-        recognition.onresult = async (event) => {
-            // Skip if speaking
-            if (this.state.isSpeaking) return;
-
+        this.state.recognition.onresult = (event) => {
             let finalTranscript = '';
             let interimTranscript = '';
 
             for (let i = event.resultIndex; i < event.results.length; i++) {
                 const transcript = event.results[i][0].transcript;
-
                 if (event.results[i].isFinal) {
                     finalTranscript += transcript;
                 } else {
@@ -1213,605 +198,497 @@ class RealTimeTranslator {
                 }
             }
 
-            // Show interim results
-            if (interimTranscript) {
-                this.updateDisplay('originalText', `${interimTranscript}...`);
+            if (this.elements.originalText) {
+                this.elements.originalText.textContent = finalTranscript || interimTranscript;
             }
 
-            // Process final results
             if (finalTranscript) {
-                console.log('📝 Transcript:', finalTranscript);
-                this.updateDisplay('originalText', finalTranscript);
-
-                // Pause listening during translation
-                this.pauseListening();
-                await this.processVoiceInput(finalTranscript);
+                this.translateAndSpeak(finalTranscript);
             }
         };
 
-        recognition.onerror = (event) => {
-            console.error('❌ Speech recognition error:', event.error);
-            this.handleSpeechError(event.error);
+        this.state.recognition.onerror = (event) => {
+            console.error('Speech recognition error:', event.error);
+            this.updateVoiceStatus('Error: ' + event.error);
+            this.state.isListening = false;
+            this.updateVoiceButtons();
         };
 
-        recognition.onend = () => {
-            console.log('🎤 Stopped listening');
-            this.state.isListening = false;
-            this.showStatus('Ready to listen', 'voiceStatus');
-            this.updateVoiceButtons();
+        this.state.recognition.onend = () => {
+            console.log('🎤 Speech recognition ended');
+            if (this.state.isListening) {
+                // Restart if still supposed to be listening
+                setTimeout(() => {
+                    if (this.state.isListening) {
+                        this.state.recognition.start();
+                    }
+                }, 100);
+            } else {
+                this.updateVoiceStatus('Stopped listening');
+                this.updateVoiceButtons();
+            }
         };
     }
 
-    /**
-     * Start listening
-     */
-    async startListening() {
-        if (this.state.isSpeaking) {
-            this.showWarning('Please wait for translation to finish');
+    startListening() {
+        if (!this.state.recognition) {
+            this.showError('Speech recognition not available');
             return;
         }
 
-        if (!this.state.recognition) {
-            this.initializeSpeechRecognition();
-        }
-
         try {
-            await this.state.recognition.start();
+            this.state.isListening = true;
+            this.state.recognition.start();
+            this.updateVoiceButtons();
+            console.log('🎤 Starting speech recognition');
         } catch (error) {
-            if (error.message?.includes('already started')) {
-                this.state.recognition.stop();
-                setTimeout(() => this.startListening(), 100);
-            } else {
-                console.error('Failed to start listening:', error);
-                this.showError('Failed to start speech recognition');
-            }
+            console.error('Failed to start listening:', error);
+            this.showError('Failed to start listening: ' + error.message);
+            this.state.isListening = false;
+            this.updateVoiceButtons();
         }
     }
 
-    /**
-     * Stop listening
-     */
     stopListening() {
         if (this.state.recognition && this.state.isListening) {
-            this.state.recognition.stop();
-        }
-    }
-
-    /**
-     * Pause listening
-     */
-    pauseListening() {
-        if (this.state.isListening) {
-            this.state.recognition.stop();
             this.state.isListening = false;
+            this.state.recognition.stop();
+            this.updateVoiceButtons();
+            console.log('🎤 Stopping speech recognition');
         }
     }
 
-    /**
-     * Resume listening
-     */
-    resumeListening() {
-        if (!this.state.isListening && !this.state.isSpeaking) {
-            setTimeout(() => this.startListening(), 500);
-        }
-    }
-
-    /**
-     * Process voice input
-     */
-    async processVoiceInput(text) {
-        try {
-            this.updateDisplay('translatedText', 'Translating...');
-
-            // Translate
-            const translation = await this.translateText(text, this.state.targetLanguage, this.state.sourceLanguage);
-
-            if (translation) {
-                this.updateDisplay('translatedText', translation.translated_text);
-
-                // Speak translation
-                await this.speakText(translation.translated_text, this.state.targetLanguage);
-
-                // Update stats
-                this.performanceMonitor.totalTranslations++;
-                this.updatePerformanceDisplay();
-            }
-
-        } catch (error) {
-            console.error('Voice processing error:', error);
-            this.updateDisplay('translatedText', 'Translation failed');
-            this.showError('Translation failed: ' + error.message);
-        } finally {
-            // Resume listening
-            this.resumeListening();
-        }
-    }
-
-    /**
-     * Handle speech recognition errors
-     */
-    handleSpeechError(error) {
-        const errorMessages = {
-            'no-speech': 'No speech detected',
-            'audio-capture': 'Microphone not accessible',
-            'not-allowed': 'Microphone permission denied',
-            'network': 'Network error - check internet connection'
-        };
-
-        const message = errorMessages[error] || `Speech error: ${error}`;
-        this.showError(message);
-
-        if (['not-allowed', 'audio-capture'].includes(error)) {
-            this.enableManualInput();
-        }
-    }
-
-    /**
-     * Enable manual text input
-     */
-    enableManualInput() {
-        if (document.getElementById('manualInputContainer')) return;
-
-        const html = `
-            <div id="manualInputContainer" class="manual-input-container">
-                <h3>Manual Text Input</h3>
-                <textarea
-                    id="manualTextInput"
-                    placeholder="Type or paste text to translate..."
-                    rows="3"
-                ></textarea>
-                <button id="translateManualText" class="btn btn-primary">
-                    Translate
-                </button>
-            </div>
-        `;
-
-        this.elements.voiceInterface?.insertAdjacentHTML('beforeend', html);
-
-        document.getElementById('translateManualText')?.addEventListener('click', async () => {
-            const text = document.getElementById('manualTextInput').value.trim();
-            if (text) {
-                this.updateDisplay('originalText', text);
-                await this.processVoiceInput(text);
-            }
-        });
-    }
-
-    /**
-     * Update voice buttons
-     */
     updateVoiceButtons() {
         if (this.elements.startListening) {
-            this.elements.startListening.disabled = this.state.isListening || this.state.isSpeaking;
+            this.elements.startListening.disabled = this.state.isListening;
         }
-
         if (this.elements.stopListening) {
             this.elements.stopListening.disabled = !this.state.isListening;
-            this.elements.stopListening.classList.toggle('active', this.state.isListening);
         }
     }
 
-    // ==================== TEXT-TO-SPEECH ====================
+    updateVoiceStatus(message) {
+        if (this.elements.voiceStatus) {
+            this.elements.voiceStatus.textContent = message;
+        }
+    }
 
-    /**
-     * Initialize text-to-speech
-     */
-    initializeTextToSpeech() {
+    async translateAndSpeak(text) {
+        try {
+            console.log('🔄 Translating:', text);
+            
+            const translation = await this.translateText(text, this.state.targetLanguage);
+            
+            if (this.elements.translatedText) {
+                this.elements.translatedText.textContent = translation.translated_text;
+            }
+            
+            // Speak the translation
+            this.speakText(translation.translated_text, this.state.targetLanguage);
+            
+        } catch (error) {
+            console.error('Translation failed:', error);
+            this.showError('Translation failed: ' + error.message);
+        }
+    }
+
+    speakText(text, language) {
         if (!('speechSynthesis' in window)) {
             console.warn('Text-to-speech not supported');
-            return false;
+            return;
         }
 
-        // Load voices
-        this.loadVoices();
-
-        // Voice change event
-        speechSynthesis.onvoiceschanged = () => this.loadVoices();
-
-        return true;
-    }
-
-    /**
-     * Load available voices
-     */
-    loadVoices() {
-        this.availableVoices = speechSynthesis.getVoices();
-        console.log(`Loaded ${this.availableVoices.length} voices`);
-    }
-
-    /**
-     * Speak text
-     */
-    async speakText(text, language) {
-        if (!text || !speechSynthesis) return;
-
-        return new Promise((resolve) => {
-            // Set speaking flag
-            this.state.isSpeaking = true;
-            this.updateVoiceButtons();
-
+        try {
             // Cancel any ongoing speech
             speechSynthesis.cancel();
-
-            // Create utterance
+            
             const utterance = new SpeechSynthesisUtterance(text);
-
-            // Configure
+            utterance.lang = this.getVoiceLanguage(language);
             utterance.rate = 0.9;
-            utterance.pitch = 1.0;
-            utterance.volume = 0.8;
-
-            // Select voice
-            const voice = this.selectVoice(language);
-            if (voice) {
-                utterance.voice = voice;
-                utterance.lang = voice.lang;
-            } else {
-                utterance.lang = this.getLanguageCode(language);
-            }
-
-            // Events
-            utterance.onstart = () => {
-                console.log('🔊 Speaking...');
-                this.showStatus('Speaking translation...', 'voiceStatus');
-            };
-
-            utterance.onend = () => {
-                console.log('🔊 Finished speaking');
-                this.state.isSpeaking = false;
-                this.showStatus('Ready to listen', 'voiceStatus');
-                this.updateVoiceButtons();
-                resolve();
-            };
-
-            utterance.onerror = (event) => {
-                console.error('TTS error:', event);
-                this.state.isSpeaking = false;
-                this.updateVoiceButtons();
-                resolve();
-            };
-
-            // Speak
+            utterance.pitch = 1;
+            
+            utterance.onstart = () => console.log('🔊 Speaking:', text);
+            utterance.onerror = (event) => console.error('Speech error:', event.error);
+            
             speechSynthesis.speak(utterance);
-        });
-    }
-
-    /**
-     * Select appropriate voice
-     */
-    selectVoice(languageCode) {
-        if (!this.availableVoices) return null;
-
-        // Try exact match
-        let voice = this.availableVoices.find(v =>
-            v.lang.toLowerCase().startsWith(languageCode.toLowerCase())
-        );
-
-        // Try partial match
-        if (!voice) {
-            const langMap = {
-                'es': ['es-ES', 'es-US', 'es-MX'],
-                'fr': ['fr-FR', 'fr-CA'],
-                'de': ['de-DE', 'de-AT'],
-                'zh': ['zh-CN', 'zh-TW', 'zh-HK']
-            };
-
-            const alternatives = langMap[languageCode] || [];
-            for (const alt of alternatives) {
-                voice = this.availableVoices.find(v =>
-                    v.lang.toLowerCase().includes(alt.toLowerCase())
-                );
-                if (voice) break;
-            }
+        } catch (error) {
+            console.error('Text-to-speech failed:', error);
         }
-
-        return voice;
     }
 
-    /**
-     * Get language code
-     */
-    getLanguageCode(code) {
-        const langMap = {
+    getVoiceLanguage(langCode) {
+        const voiceMap = {
             'es': 'es-ES',
             'fr': 'fr-FR',
             'de': 'de-DE',
             'it': 'it-IT',
-            'pt': 'pt-BR',
+            'pt': 'pt-PT',
             'ru': 'ru-RU',
             'ja': 'ja-JP',
             'ko': 'ko-KR',
             'zh': 'zh-CN',
             'ar': 'ar-SA',
-            'hi': 'hi-IN'
+            'hi': 'hi-IN',
+            'en': 'en-US'
         };
+        return voiceMap[langCode] || 'en-US';
+    }
 
-        return langMap[code] || code;
+    // ==================== TEXT MODE ====================
+
+    async translateTextInput() {
+        const text = this.elements.textInput?.value.trim();
+        if (!text) {
+            this.showError('Please enter text to translate');
+            return;
+        }
+
+        if (text.length > APP_CONFIG.MAX_TEXT_LENGTH) {
+            this.showError(`Text too long (max ${APP_CONFIG.MAX_TEXT_LENGTH} characters)`);
+            return;
+        }
+
+        try {
+            console.log('🔄 Translating text input:', text);
+            
+            if (this.elements.textTranslationOutput) {
+                this.elements.textTranslationOutput.innerHTML = '<div class="loading">Translating...</div>';
+            }
+            
+            const translation = await this.translateText(text, this.state.targetLanguage);
+            
+            if (this.elements.textTranslationOutput) {
+                this.elements.textTranslationOutput.innerHTML = `
+                    <div class="translation-result">
+                        <div class="original">
+                            <strong>Original (${translation.source_language}):</strong>
+                            <p>${translation.original_text}</p>
+                        </div>
+                        <div class="translated">
+                            <strong>Translation (${translation.target_language}):</strong>
+                            <p>${translation.translated_text}</p>
+                        </div>
+                        <button onclick="window.translator.speakText('${translation.translated_text.replace(/'/g, "\\'")}', '${translation.target_language}')" class="speak-btn">🔊 Speak</button>
+                    </div>
+                `;
+            }
+            
+        } catch (error) {
+            console.error('Text translation failed:', error);
+            this.showError('Translation failed: ' + error.message);
+            
+            if (this.elements.textTranslationOutput) {
+                this.elements.textTranslationOutput.innerHTML = '<div class="error">Translation failed. Please try again.</div>';
+            }
+        }
+    }
+
+    clearTextInput() {
+        if (this.elements.textInput) {
+            this.elements.textInput.value = '';
+        }
+        if (this.elements.textTranslationOutput) {
+            this.elements.textTranslationOutput.innerHTML = '<div class="placeholder">Translation will appear here...</div>';
+        }
     }
 
     // ==================== CAMERA MODE ====================
 
-    /**
-     * Start camera
-     */
     async startCamera() {
-        console.log('📷 Starting camera...');
-
         try {
-            // Check support
-            if (!navigator.mediaDevices?.getUserMedia) {
-                throw new Error('Camera not supported');
-            }
-
-            // Check if we can enumerate devices (for camera switching)
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const videoDevices = devices.filter(device => device.kind === 'videoinput');
-
-            console.log(`Found ${videoDevices.length} camera(s)`);
-
-            // Enable switch button if multiple cameras
-            if (this.elements.switchCamera && videoDevices.length > 1) {
-                this.elements.switchCamera.disabled = false;
-            }
-
-            this.showStatus('Requesting camera access...', 'cameraStatus');
-
-            // Request camera with current facing mode (back camera by default)
-            const constraints = {
-                video: {
-                    width: APP_CONFIG.CAMERA.WIDTH,
-                    height: APP_CONFIG.CAMERA.HEIGHT,
-                    frameRate: APP_CONFIG.CAMERA.FRAME_RATE,
-                    facingMode: this.state.currentCameraFacing
-                },
-                audio: false
-            };
-
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
-
-            // Set stream
-            this.state.videoStream = stream;
-            this.elements.videoElement.srcObject = stream;
-
-            // Wait for metadata
-            await new Promise((resolve) => {
-                this.elements.videoElement.onloadedmetadata = () => {
-                    this.elements.videoElement.play();
-                    resolve();
-                };
+            console.log('📷 Starting camera...');
+            
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { width: 640, height: 480 } 
             });
-
-            // Setup canvas
-            this.setupCanvas();
-
-            // Update state
+            
+            this.state.currentStream = stream;
+            this.elements.videoElement.srcObject = stream;
             this.state.isCameraActive = true;
+            
             this.updateCameraButtons();
-
-            // Start detection
-            this.startDetection();
-
-            console.log('✅ Camera started');
-            this.hideError();
-
+            this.updateCameraStatus('Camera starting...');
+            
+            // Wait for video to load, then start object detection
+            this.elements.videoElement.onloadedmetadata = () => {
+                this.elements.videoElement.play();
+                this.loadObjectDetectionModel();
+            };
+            
         } catch (error) {
-            console.error('❌ Camera error:', error);
-
-            // If back camera fails, try any available camera
-            if (this.state.currentCameraFacing === 'environment' && !this.state.videoStream) {
-                console.log('Back camera failed, trying any camera...');
-                this.state.currentCameraFacing = 'user';
-
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({
-                        video: true,
-                        audio: false
-                    });
-
-                    this.state.videoStream = stream;
-                    this.elements.videoElement.srcObject = stream;
-
-                    await new Promise((resolve) => {
-                        this.elements.videoElement.onloadedmetadata = () => {
-                            this.elements.videoElement.play();
-                            resolve();
-                        };
-                    });
-
-                    this.setupCanvas();
-                    this.state.isCameraActive = true;
-                    this.updateCameraButtons();
-                    this.startDetection();
-
-                    console.log('✅ Camera started with fallback');
-                    this.showWarning('Using front camera (back camera not available)');
-
-                } catch (fallbackError) {
-                    this.showError('Camera access failed: ' + fallbackError.message);
-                    this.stopCamera();
-                }
-            } else {
-                this.showError('Camera access failed: ' + error.message);
-                this.stopCamera();
-            }
+            console.error('Camera failed:', error);
+            this.showError('Camera access failed: ' + error.message);
+            this.state.isCameraActive = false;
+            this.updateCameraButtons();
         }
     }
 
-    /**
-     * Switch between front and back camera
-     */
-    async switchCamera() {
-        if (!this.state.isCameraActive) return;
-
-        console.log('Switching camera...');
-
-        // Toggle facing mode
-        this.state.currentCameraFacing =
-            this.state.currentCameraFacing === 'environment' ? 'user' : 'environment';
-
-        // Restart camera with new facing mode
-        await this.stopCamera();
-        await this.startCamera();
-    }
-
-    /**
-     * Stop camera
-     */
     stopCamera() {
         console.log('📷 Stopping camera...');
-
-        // Stop stream
-        if (this.state.videoStream) {
-            this.state.videoStream.getTracks().forEach(track => track.stop());
-            this.state.videoStream = null;
+        
+        if (this.state.currentStream) {
+            this.state.currentStream.getTracks().forEach(track => track.stop());
+            this.state.currentStream = null;
         }
-
-        // Clear video
+        
         if (this.elements.videoElement) {
             this.elements.videoElement.srcObject = null;
         }
-
-        // Stop detection
-        this.stopDetection();
-
-        // Clear canvas
-        this.clearCanvas();
-
-        // Update state
+        
+        if (this.state.detectionInterval) {
+            clearInterval(this.state.detectionInterval);
+            this.state.detectionInterval = null;
+        }
+        
         this.state.isCameraActive = false;
         this.updateCameraButtons();
-
-        // Clear display
-        this.updateDisplay('detectedObjects', 'Camera stopped');
-
-        console.log('✅ Camera stopped');
-    }
-
-    /**
-     * Setup canvas
-     */
-    setupCanvas() {
-        const video = this.elements.videoElement;
-        const canvas = this.elements.detectionCanvas;
-
-        if (!video || !canvas) return;
-
-        canvas.width = video.videoWidth || 640;
-        canvas.height = video.videoHeight || 480;
-
-        // Position canvas over video
-        canvas.style.position = 'absolute';
-        canvas.style.top = `${video.offsetTop}px`;
-        canvas.style.left = `${video.offsetLeft}px`;
-        canvas.style.width = `${video.offsetWidth}px`;
-        canvas.style.height = `${video.offsetHeight}px`;
-        canvas.style.pointerEvents = 'none';
-        canvas.style.zIndex = '10';
-    }
-
-    /**
-     * Clear canvas
-     */
-    clearCanvas() {
-        const canvas = this.elements.detectionCanvas;
-        if (canvas) {
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        this.updateCameraStatus('Camera stopped');
+        
+        if (this.elements.detectedObjects) {
+            this.elements.detectedObjects.innerHTML = '<div class="placeholder">Start camera to detect objects</div>';
         }
     }
 
-    /**
-     * Update camera buttons
-     */
     updateCameraButtons() {
         if (this.elements.startCamera) {
             this.elements.startCamera.disabled = this.state.isCameraActive;
         }
-
         if (this.elements.stopCamera) {
             this.elements.stopCamera.disabled = !this.state.isCameraActive;
-            this.elements.stopCamera.classList.toggle('active', this.state.isCameraActive);
         }
+    }
 
-        if (this.elements.switchCamera) {
-            this.elements.switchCamera.disabled = !this.state.isCameraActive;
+    updateCameraStatus(message) {
+        if (this.elements.cameraStatus) {
+            this.elements.cameraStatus.textContent = message;
+        }
+    }
+
+    async loadObjectDetectionModel() {
+        try {
+            console.log('🤖 Loading object detection model...');
+            this.updateCameraStatus('Loading AI model...');
+            
+            // Load TensorFlow.js and COCO-SSD model
+            if (typeof cocoSsd === 'undefined') {
+                throw new Error('TensorFlow.js COCO-SSD not loaded');
+            }
+            
+            this.state.detectionModel = await cocoSsd.load();
+            console.log('✅ Object detection model loaded');
+            
+            this.updateCameraStatus('Camera active - Detecting objects...');
+            this.startObjectDetection();
+            
+        } catch (error) {
+            console.error('Model loading failed:', error);
+            this.updateCameraStatus('Model loading failed');
+            this.showError('AI model loading failed: ' + error.message);
+        }
+    }
+
+    startObjectDetection() {
+        if (this.state.detectionInterval) {
+            clearInterval(this.state.detectionInterval);
+        }
+        
+        this.state.detectionInterval = setInterval(async () => {
+            if (this.state.isCameraActive && this.state.detectionModel && this.elements.videoElement.readyState === 4) {
+                await this.detectObjects();
+            }
+        }, APP_CONFIG.DETECTION_INTERVAL);
+    }
+
+    async detectObjects() {
+        try {
+            const predictions = await this.state.detectionModel.detect(this.elements.videoElement);
+            
+            if (predictions.length > 0) {
+                await this.displayDetections(predictions);
+            } else {
+                if (this.elements.detectedObjects) {
+                    this.elements.detectedObjects.innerHTML = '<div class="no-objects">No objects detected</div>';
+                }
+            }
+            
+        } catch (error) {
+            console.error('Object detection failed:', error);
+        }
+    }
+
+    async displayDetections(predictions) {
+        const detectedItems = [];
+        
+        for (const prediction of predictions.slice(0, 3)) { // Limit to top 3
+            if (prediction.score > 0.5) {
+                try {
+                    const translation = await this.translateText(prediction.class, this.state.targetLanguage);
+                    detectedItems.push({
+                        original: prediction.class,
+                        translated: translation.translated_text,
+                        confidence: Math.round(prediction.score * 100)
+                    });
+                } catch (error) {
+                    console.error('Translation failed for:', prediction.class);
+                    detectedItems.push({
+                        original: prediction.class,
+                        translated: prediction.class,
+                        confidence: Math.round(prediction.score * 100)
+                    });
+                }
+            }
+        }
+        
+        if (detectedItems.length > 0 && this.elements.detectedObjects) {
+            this.elements.detectedObjects.innerHTML = detectedItems.map(item => `
+                <div class="detection-item">
+                    <div class="object-name">
+                        <span class="original">${item.original}</span>
+                        <span class="arrow">→</span>
+                        <span class="translated">${item.translated}</span>
+                    </div>
+                    <div class="confidence">${item.confidence}% confidence</div>
+                    <button onclick="window.translator.speakText('${item.translated.replace(/'/g, "\\'")}', '${this.state.targetLanguage}')" class="speak-btn-small">🔊</button>
+                </div>
+            `).join('');
+            
+            // Auto-speak the first detection
+            if (detectedItems[0]) {
+                this.speakText(detectedItems[0].translated, this.state.targetLanguage);
+            }
         }
     }
 
     // ==================== OCR MODE ====================
 
-    /**
-     * Start OCR camera
-     */
     async startOcrCamera() {
         try {
-            this.showStatus('Starting camera...', 'ocrStatus');
+            console.log('📷 Starting OCR camera...');
             
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { width: 640, height: 480 },
-                audio: false
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { width: 640, height: 480 } 
             });
             
-            this.state.ocrVideoStream = stream;
+            this.state.ocrStream = stream;
             this.elements.ocrVideoElement.srcObject = stream;
-            
-            await new Promise(resolve => {
-                this.elements.ocrVideoElement.onloadedmetadata = () => {
-                    this.elements.ocrVideoElement.play();
-                    resolve();
-                };
-            });
-            
             this.state.isOcrCameraActive = true;
+            
             this.updateOcrButtons();
-            this.showStatus('Camera ready - Take a photo', 'ocrStatus');
+            this.updateOcrStatus('Camera ready - Take a photo');
+            
+            this.elements.ocrVideoElement.onloadedmetadata = () => {
+                this.elements.ocrVideoElement.play();
+            };
             
         } catch (error) {
-            console.error('OCR camera error:', error);
-            this.showError('Failed to start camera: ' + error.message);
+            console.error('OCR camera failed:', error);
+            this.showError('Camera access failed: ' + error.message);
+            this.state.isOcrCameraActive = false;
+            this.updateOcrButtons();
         }
     }
 
-    /**
-     * Capture OCR photo
-     */
     async captureOcrPhoto() {
-        if (!this.state.isOcrCameraActive) return;
-        
+        if (!this.state.isOcrCameraActive) {
+            this.showError('Camera not active');
+            return;
+        }
+
         try {
-            this.showStatus('Capturing and processing...', 'ocrStatus');
+            console.log('📸 Capturing photo for OCR...');
+            this.updateOcrStatus('Processing image...');
             
-            // Capture frame
+            // Create canvas and capture frame
             const canvas = document.createElement('canvas');
-            const video = this.elements.ocrVideoElement;
+            const context = canvas.getContext('2d');
+            canvas.width = this.elements.ocrVideoElement.videoWidth;
+            canvas.height = this.elements.ocrVideoElement.videoHeight;
             
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
+            context.drawImage(this.elements.ocrVideoElement, 0, 0);
             
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0);
-            
-            const imageData = canvas.toDataURL('image/jpeg', 0.8);
-            
-            // Process OCR
-            const result = await this.processOCR(imageData);
-            this.displayOcrResult(result);
+            // Convert to blob
+            canvas.toBlob(async (blob) => {
+                try {
+                    const ocrResult = await this.performOCR(blob);
+                    await this.displayOcrResult(ocrResult);
+                } catch (error) {
+                    console.error('OCR processing failed:', error);
+                    this.showError('OCR processing failed: ' + error.message);
+                    this.updateOcrStatus('OCR failed - Try again');
+                }
+            }, 'image/jpeg', 0.8);
             
         } catch (error) {
-            console.error('OCR capture failed:', error);
-            this.showError('OCR failed: ' + error.message);
-        } finally {
-            this.showStatus('Camera ready - Take another photo', 'ocrStatus');
+            console.error('Photo capture failed:', error);
+            this.showError('Photo capture failed: ' + error.message);
+            this.updateOcrStatus('Capture failed - Try again');
         }
     }
 
-    /**
-     * Stop OCR camera
-     */
+    async performOCR(imageBlob) {
+        const formData = new FormData();
+        formData.append('image', imageBlob, 'capture.jpg');
+        formData.append('target_language', this.state.targetLanguage);
+
+        const response = await fetch(`${APP_CONFIG.API_BASE}/ocr`, {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            throw new Error(`OCR request failed: ${response.status}`);
+        }
+
+        return await response.json();
+    }
+
+    async displayOcrResult(result) {
+        console.log('📝 OCR result:', result);
+        
+        if (result.success && result.extracted_text) {
+            this.elements.ocrOutput.innerHTML = `
+                <div class="ocr-result">
+                    <h4>📷 OCR Result</h4>
+                    <div class="ocr-text">
+                        <div class="extracted">
+                            <strong>Extracted Text:</strong>
+                            <p>${result.extracted_text}</p>
+                        </div>
+                        ${result.translated_text ? `
+                            <div class="translated">
+                                <strong>Translation (${result.target_language}):</strong>
+                                <p>${result.translated_text}</p>
+                            </div>
+                            <button onclick="window.translator.speakText('${result.translated_text.replace(/'/g, "\\'")}', '${result.target_language}')" class="speak-btn">🔊 Speak Translation</button>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+            
+            this.updateOcrStatus('OCR completed successfully');
+            
+            // Auto-speak translation if available
+            if (result.translated_text) {
+                this.speakText(result.translated_text, result.target_language);
+            }
+            
+        } else {
+            this.elements.ocrOutput.innerHTML = `
+                <div class="ocr-result error">
+                    <h4>📷 OCR Result</h4>
+                    <p>No text detected in the image. Try again with clearer text.</p>
+                </div>
+            `;
+            this.updateOcrStatus('No text detected - Try again');
+        }
+    }
+
     stopOcrCamera() {
-        if (this.state.ocrVideoStream) {
-            this.state.ocrVideoStream.getTracks().forEach(track => track.stop());
-            this.state.ocrVideoStream = null;
+        console.log('📷 Stopping OCR camera...');
+        
+        if (this.state.ocrStream) {
+            this.state.ocrStream.getTracks().forEach(track => track.stop());
+            this.state.ocrStream = null;
         }
         
         if (this.elements.ocrVideoElement) {
@@ -1820,13 +697,9 @@ class RealTimeTranslator {
         
         this.state.isOcrCameraActive = false;
         this.updateOcrButtons();
-        this.showStatus('Camera stopped', 'ocrStatus');
-        this.updateDisplay('ocrOutput', 'Take a photo to extract text...');
+        this.updateOcrStatus('Camera stopped');
     }
 
-    /**
-     * Update OCR buttons
-     */
     updateOcrButtons() {
         if (this.elements.startOcrCamera) {
             this.elements.startOcrCamera.disabled = this.state.isOcrCameraActive;
@@ -1839,597 +712,151 @@ class RealTimeTranslator {
         }
     }
 
-    /**
-     * Display OCR result
-     */
-    displayOcrResult(result) {
-        const { extracted_text, detected_language, translation } = result;
-        
-        if (!extracted_text) {
-            this.updateDisplay('ocrOutput', 'No text found in image');
-            return;
-        }
-        
-        let html = `
-            <div class="ocr-result">
-                <h4>📷 Text Extracted</h4>
-                <div class="extracted-section">
-                    <strong>Original Text (${this.getLanguageName(detected_language)}):</strong>
-                    <div class="extracted-text">${extracted_text}</div>
-                </div>
-        `;
-        
-        if (translation) {
-            html += `
-                <div class="translation-section">
-                    <strong>Translation (${this.getLanguageName(this.state.targetLanguage)}):</strong>
-                    <div class="translated-text">${translation.translated_text}</div>
-                </div>
-            `;
-            
-            // Speak translation
-            this.speakText(translation.translated_text, this.state.targetLanguage);
-        }
-        
-        html += '</div>';
-        this.updateDisplay('ocrOutput', html);
-        
-        // Update stats
-        this.performanceMonitor.totalTranslations++;
-        this.updatePerformanceDisplay();
-    }
-
-    /**
-     * Capture photo for OCR
-     */
-    async capturePhoto() {
-        if (!this.state.isCameraActive) return;
-
-        try {
-            this.showStatus('Capturing photo...', 'cameraStatus');
-            
-            // Create canvas to capture frame
-            const canvas = document.createElement('canvas');
-            const video = this.elements.videoElement;
-            
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0);
-            
-            // Convert to base64
-            const imageData = canvas.toDataURL('image/jpeg', 0.8);
-            
-            this.showStatus('Processing OCR...', 'cameraStatus');
-            
-            // Send to OCR API
-            const result = await this.processOCR(imageData);
-            
-            if (result.extracted_text) {
-                this.displayOCRResult(result);
-            } else {
-                this.showWarning('No text found in image');
-            }
-            
-        } catch (error) {
-            console.error('Photo capture failed:', error);
-            this.showError('Failed to process photo: ' + error.message);
-        } finally {
-            this.showStatus('Camera active - Ready for OCR', 'cameraStatus');
+    updateOcrStatus(message) {
+        if (this.elements.ocrStatus) {
+            this.elements.ocrStatus.textContent = message;
         }
     }
 
-    /**
-     * Process OCR
-     */
-    async processOCR(imageData) {
-        const apiUrl = APP_CONFIG.API_BASE ? `${APP_CONFIG.API_BASE}/ocr` : '/ocr';
-        
-        const response = await fetch(apiUrl, {
+    // ==================== API COMMUNICATION ====================
+
+    async translateText(text, targetLanguage, sourceLang = 'auto') {
+        const response = await fetch(`${APP_CONFIG.API_BASE}/translate`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+            },
             body: JSON.stringify({
-                image: imageData,
-                target_language: this.state.targetLanguage
+                text: text,
+                target_language: targetLanguage,
+                source_language: sourceLang
             })
         });
-        
+
         if (!response.ok) {
-            throw new Error(`OCR failed: ${response.status}`);
-        }
-        
-        return await response.json();
-    }
-
-    /**
-     * Display OCR result
-     */
-    displayOCRResult(result) {
-        const { extracted_text, detected_language, translation } = result;
-        
-        // Show in detected objects area
-        const html = `
-            <div class="ocr-result">
-                <h4>📷 OCR Result</h4>
-                <div class="ocr-text">
-                    <strong>Extracted Text:</strong><br>
-                    <div class="extracted-text">${extracted_text}</div>
-                </div>
-                <div class="ocr-lang">
-                    <strong>Detected Language:</strong> ${this.getLanguageName(detected_language)}
-                </div>
-                ${translation ? `
-                    <div class="ocr-translation">
-                        <strong>Translation:</strong><br>
-                        <div class="translated-text">${translation.translated_text}</div>
-                    </div>
-                ` : ''}
-            </div>
-        `;
-        
-        this.updateDisplay('detectedObjects', html);
-        
-        // Speak translation if available
-        if (translation) {
-            this.speakText(translation.translated_text, this.state.targetLanguage);
-        }
-        
-        // Update stats
-        this.performanceMonitor.totalTranslations++;
-        this.updatePerformanceDisplay();
-    }
-
-    /**
-     * Get language name from code
-     */
-    getLanguageName(code) {
-        const names = {
-            'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
-            'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese',
-            'ko': 'Korean', 'zh': 'Chinese', 'ar': 'Arabic', 'hi': 'Hindi'
-        };
-        return names[code] || code;
-    }
-
-    /**
-     * Start object detection
-     */
-    startDetection() {
-        if (!this.state.isCameraActive) return;
-
-        console.log('🔍 Starting object detection...');
-        this.showStatus('Camera active - Detecting objects...', 'cameraStatus', true);
-
-        // Clear previous interval
-        if (this.state.detectionInterval) {
-            clearInterval(this.state.detectionInterval);
+            throw new Error(`Translation request failed: ${response.status}`);
         }
 
-        // Detection loop
-        const detect = async () => {
-            if (!this.state.isCameraActive) return;
-
-            try {
-                const detections = await this.detector.detect(this.elements.videoElement);
-
-                if (detections && detections.length > 0) {
-                    await this.processDetections(detections);
-                    this.drawDetections(detections);
-                    this.updateDetectionDisplay(detections);
-                } else {
-                    this.updateDisplay('detectedObjects', 'No objects detected');
-                }
-
-                // Update performance stats
-                this.updatePerformanceDisplay();
-
-            } catch (error) {
-                console.error('Detection error:', error);
-            }
-        };
-
-        // Start interval
-        this.state.detectionInterval = setInterval(detect, APP_CONFIG.DETECTION.DETECTION_INTERVAL);
-
-        // Run first detection
-        detect();
-    }
-
-    /**
-     * Stop detection
-     */
-    stopDetection() {
-        if (this.state.detectionInterval) {
-            clearInterval(this.state.detectionInterval);
-            this.state.detectionInterval = null;
-        }
-
-        console.log('🔍 Stopped object detection');
-    }
-
-    /**
-     * Process detections
-     */
-    async processDetections(detections) {
-        // Get top detection
-        const topDetection = detections[0];
-
-        if (!topDetection) return;
-
-        // Check if already processed recently
-        const key = `${topDetection.class}_${Math.round(Date.now() / APP_CONFIG.DETECTION.TRANSLATION_DELAY)}`;
-
-        if (!this.state.processedObjects.has(key)) {
-            this.state.processedObjects.add(key);
-
-            // Clean old entries
-            if (this.state.processedObjects.size > 100) {
-                const entries = Array.from(this.state.processedObjects);
-                entries.slice(0, 50).forEach(e => this.state.processedObjects.delete(e));
-            }
-
-            // Translate
-            try {
-                console.log('Translating:', topDetection.class);
-                const translation = await this.translateText(topDetection.class, this.state.targetLanguage, 'en');
-
-                if (translation) {
-                    // Store translation in all detections of same class
-                    detections.forEach(det => {
-                        if (det.class === topDetection.class) {
-                            det.translation = translation.translated_text;
-                        }
-                    });
-
-                    // Speak translation
-                    this.speakText(translation.translated_text, this.state.targetLanguage);
-
-                    // Update stats
-                    this.performanceMonitor.totalTranslations++;
-                }
-            } catch (error) {
-                console.error('Translation error:', error);
-            }
-        }
-
-        // Update stats
-        this.performanceMonitor.totalDetections += detections.length;
-    }
-
-    /**
-     * Draw detections on canvas
-     */
-    drawDetections(detections) {
-        const canvas = this.elements.detectionCanvas;
-        const ctx = canvas.getContext('2d');
-        const video = this.elements.videoElement;
-
-        // Clear canvas
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        // Calculate scale
-        const scaleX = canvas.width / video.videoWidth;
-        const scaleY = canvas.height / video.videoHeight;
-
-        // Color map for categories
-        const colors = {
-            'People': '#FF6B6B',
-            'Animal': '#4ECDC4',
-            'Vehicle': '#45B7D1',
-            'Food': '#FFA07A',
-            'Furniture': '#98D8C8',
-            'Electronics': '#A8E6CF',
-            'Object': '#C7CEEA'
-        };
-
-        // Draw each detection
-        detections.forEach((detection, index) => {
-            const [x, y, width, height] = detection.bbox;
-            const category = detection.category || 'Object';
-            const color = colors[category] || '#00FF00';
-
-            // Scale coordinates
-            const sx = x * scaleX;
-            const sy = y * scaleY;
-            const sw = width * scaleX;
-            const sh = height * scaleY;
-
-            // Draw box
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 3;
-            ctx.strokeRect(sx, sy, sw, sh);
-
-            // Draw corners
-            this.drawCorners(ctx, sx, sy, sw, sh, color);
-
-            // Draw label
-            const label = detection.class;
-            const confidence = Math.round(detection.confidence * 100);
-            const translation = detection.translation || '';
-
-            // Background
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            const labelHeight = translation ? 60 : 40;
-            ctx.fillRect(sx, sy - labelHeight, sw, labelHeight);
-
-            // Text
-            ctx.fillStyle = '#FFFFFF';
-            ctx.font = 'bold 14px Arial';
-            ctx.fillText(label, sx + 5, sy - labelHeight + 20);
-
-            ctx.font = '12px Arial';
-            ctx.fillText(`${confidence}%`, sx + 5, sy - labelHeight + 35);
-
-            if (translation) {
-                ctx.fillStyle = '#00FF00';
-                ctx.fillText(translation, sx + 5, sy - labelHeight + 50);
-            }
-
-            // Category indicator
-            ctx.fillStyle = color;
-            ctx.fillRect(sx, sy - labelHeight, 3, labelHeight);
-        });
-
-        // Draw performance stats
-        this.drawPerformanceStats(ctx, canvas);
-    }
-
-    /**
-     * Draw corners
-     */
-    drawCorners(ctx, x, y, width, height, color) {
-        const cornerLength = 15;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 3;
-
-        // Top-left
-        ctx.beginPath();
-        ctx.moveTo(x, y + cornerLength);
-        ctx.lineTo(x, y);
-        ctx.lineTo(x + cornerLength, y);
-        ctx.stroke();
-
-        // Top-right
-        ctx.beginPath();
-        ctx.moveTo(x + width - cornerLength, y);
-        ctx.lineTo(x + width, y);
-        ctx.lineTo(x + width, y + cornerLength);
-        ctx.stroke();
-
-        // Bottom-left
-        ctx.beginPath();
-        ctx.moveTo(x, y + height - cornerLength);
-        ctx.lineTo(x, y + height);
-        ctx.lineTo(x + cornerLength, y + height);
-        ctx.stroke();
-
-        // Bottom-right
-        ctx.beginPath();
-        ctx.moveTo(x + width - cornerLength, y + height);
-        ctx.lineTo(x + width, y + height);
-        ctx.lineTo(x + width, y + height - cornerLength);
-        ctx.stroke();
-    }
-
-    /**
-     * Draw performance stats
-     */
-    drawPerformanceStats(ctx, canvas) {
-        const stats = this.detector.getPerformanceStats();
-
-        const lines = [
-            `FPS: ${stats.fps}`,
-            `Model: ${stats.modelType}`,
-            `Objects: ${stats.cacheSize}`
-        ];
-
-        // Background
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(canvas.width - 140, 10, 130, 60);
-
-        // Text
-        ctx.fillStyle = '#00FF00';
-        ctx.font = '12px monospace';
-        lines.forEach((line, i) => {
-            ctx.fillText(line, canvas.width - 135, 30 + i * 15);
-        });
-    }
-
-    /**
-     * Update detection display
-     */
-    updateDetectionDisplay(detections) {
-        const container = this.elements.detectedObjects;
-        if (!container) return;
-
-        if (detections.length === 0) {
-            container.innerHTML = 'No objects detected';
-            return;
-        }
-
-        // Show top detection with translation
-        const topDetection = detections[0];
-        const confidence = Math.round(topDetection.confidence * 100);
+        const result = await response.json();
         
-        let html = `
-            <div class="current-detection">
-                <div class="detection-header">
-                    <h4>🎯 Detected Object</h4>
-                </div>
-                <div class="object-info">
-                    <div class="object-original">
-                        <strong>English:</strong> ${topDetection.class}
-                    </div>
-                    ${topDetection.translation ? `
-                        <div class="object-translated">
-                            <strong>${this.getLanguageName(this.state.targetLanguage)}:</strong> ${topDetection.translation}
-                        </div>
-                    ` : ''}
-                    <div class="object-confidence">
-                        <strong>Confidence:</strong> ${confidence}%
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        container.innerHTML = html;
+        if (!result.success) {
+            throw new Error(result.error || 'Translation failed');
+        }
+
+        return result;
     }
 
-    /**
-     * Update performance display
-     */
-    updatePerformanceDisplay() {
-        if (!this.elements.performanceStats) return;
-
-        const stats = {
-            uptime: Math.floor((Date.now() - this.performanceMonitor.startTime) / 1000),
-            translations: this.performanceMonitor.totalTranslations,
-            detections: this.performanceMonitor.totalDetections,
-            ...this.detector.getPerformanceStats()
-        };
-
-        const html = `
-            <div class="stats-grid">
-                <div class="stat">
-                    <span class="stat-label">Uptime</span>
-                    <span class="stat-value">${stats.uptime}s</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-label">Translations</span>
-                    <span class="stat-value">${stats.translations}</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-label">Detections</span>
-                    <span class="stat-value">${stats.detections}</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-label">FPS</span>
-                    <span class="stat-value">${stats.fps}</span>
-                </div>
-            </div>
-        `;
-
-        this.elements.performanceStats.innerHTML = html;
-    }
-
-    // ==================== TRANSLATION ====================
-
-    /**
-     * Translate text
-     */
-    async translateText(text, targetLang = null, sourceLang = null) {
-        const target = targetLang || this.state.targetLanguage;
-        const source = sourceLang || this.state.sourceLanguage || 'auto';
-
+    async loadLanguages() {
         try {
-            const apiUrl = APP_CONFIG.API_BASE ?
-                `${APP_CONFIG.API_BASE}/translate` :
-                '/translate';
-
-            const response = await fetch(apiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    text: text,
-                    target_language: target,
-                    source_language: source
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
+            const response = await fetch(`${APP_CONFIG.API_BASE}/languages`);
+            if (response.ok) {
+                const languages = await response.json();
+                this.populateLanguageSelect(languages);
             }
-
-            const data = await response.json();
-
-            if (data.error) {
-                throw new Error(data.message || 'Translation failed');
-            }
-
-            this.state.lastTranslation = data;
-            return data;
-
         } catch (error) {
-            console.error('Translation error:', error);
-            throw error;
+            console.warn('Failed to load languages:', error);
+            // Use default languages if API fails
+            this.populateLanguageSelect({
+                'es': 'Spanish',
+                'fr': 'French',
+                'de': 'German',
+                'it': 'Italian',
+                'pt': 'Portuguese',
+                'ru': 'Russian',
+                'ja': 'Japanese',
+                'ko': 'Korean',
+                'zh': 'Chinese',
+                'ar': 'Arabic',
+                'hi': 'Hindi'
+            });
         }
     }
 
-    // ==================== UI HELPERS ====================
-
-    /**
-     * Show status message
-     */
-    showStatus(message, elementId, isActive = false) {
-        const element = this.elements[elementId];
-        if (element) {
-            element.textContent = message;
-            element.classList.toggle('active', isActive);
-        }
-    }
-
-    /**
-     * Update display
-     */
-    updateDisplay(elementId, content) {
-        const element = this.elements[elementId];
-        if (element) {
-            if (typeof content === 'string') {
-                element.textContent = content;
-            } else {
-                element.innerHTML = content;
+    populateLanguageSelect(languages) {
+        if (!this.elements.targetLanguage) return;
+        
+        this.elements.targetLanguage.innerHTML = '';
+        
+        Object.entries(languages).forEach(([code, name]) => {
+            const option = document.createElement('option');
+            option.value = code;
+            option.textContent = name;
+            if (code === this.state.targetLanguage) {
+                option.selected = true;
             }
+            this.elements.targetLanguage.appendChild(option);
+        });
+    }
+
+    async testBackendConnection() {
+        try {
+            const response = await fetch(`${APP_CONFIG.API_BASE}/health`);
+            if (response.ok) {
+                console.log('✅ Backend connection successful');
+                return true;
+            } else {
+                throw new Error(`Backend responded with status: ${response.status}`);
+            }
+        } catch (error) {
+            console.warn('⚠️ Backend connection failed:', error);
+            this.showError('Backend connection failed. Some features may not work.');
+            return false;
         }
     }
 
-    /**
-     * Show error
-     */
-    showError(message, dismissible = true) {
-        console.error('Error:', message);
+    // ==================== UTILITY METHODS ====================
 
+    updateStatus(message) {
+        console.log('📊 Status:', message);
+        
+        // Update mode-specific status elements
+        if (this.state.currentMode === 'voice' && this.elements.voiceStatus) {
+            this.elements.voiceStatus.textContent = message;
+        } else if (this.state.currentMode === 'camera' && this.elements.cameraStatus) {
+            this.elements.cameraStatus.textContent = message;
+        } else if (this.state.currentMode === 'ocr' && this.elements.ocrStatus) {
+            this.elements.ocrStatus.textContent = message;
+        }
+    }
+
+    showError(message) {
+        console.error('❌ Error:', message);
+        
         if (this.elements.errorMessage) {
             this.elements.errorMessage.textContent = message;
             this.elements.errorMessage.classList.remove('hidden');
-
-            if (dismissible) {
-                setTimeout(() => this.hideError(), 5000);
-            }
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                this.elements.errorMessage.classList.add('hidden');
+            }, 5000);
         }
     }
 
-    /**
-     * Hide error
-     */
     hideError() {
         if (this.elements.errorMessage) {
             this.elements.errorMessage.classList.add('hidden');
         }
     }
-
-    /**
-     * Show warning
-     */
-    showWarning(message) {
-        console.warn('Warning:', message);
-        this.showError(message, true);
-    }
 }
 
-// ==================== INITIALIZATION ====================
+// Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     console.log('🚀 Starting Real-Time Translator...');
-
-    // Check dependencies
-    if (typeof tf === 'undefined') {
-        console.warn('TensorFlow.js not loaded - detection may be limited');
-    }
-
-    if (typeof cocoSsd === 'undefined') {
-        console.warn('COCO-SSD not loaded - using fallback detection');
-    }
-
-    // Initialize application
     window.translator = new RealTimeTranslator();
+});
+
+// Handle page visibility changes
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden && window.translator) {
+        // Stop activities when page is hidden
+        window.translator.stopAllActivities();
+    }
+});
+
+// Handle page unload
+window.addEventListener('beforeunload', () => {
+    if (window.translator) {
+        window.translator.stopAllActivities();
+    }
 });
