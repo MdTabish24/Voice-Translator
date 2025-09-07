@@ -692,6 +692,16 @@ class RealTimeTranslator {
             performanceStats: document.getElementById('performanceStats')
         };
 
+        // Debug: Check which elements are found
+        console.log('DOM Elements found:');
+        Object.entries(this.elements).forEach(([key, element]) => {
+            if (!element) {
+                console.error(`❌ Element not found: ${key}`);
+            } else {
+                console.log(`✅ Element found: ${key}`);
+            }
+        });
+
         // Initialize detector
         this.detector = new UniversalObjectDetector();
 
@@ -755,11 +765,42 @@ class RealTimeTranslator {
      * Setup event listeners
      */
     setupEventListeners() {
-        // Mode switching
-        this.elements.voiceMode?.addEventListener('click', () => this.switchMode('voice'));
-        this.elements.textMode?.addEventListener('click', () => this.switchMode('text'));
-        this.elements.cameraMode?.addEventListener('click', () => this.switchMode('camera'));
-        this.elements.ocrMode?.addEventListener('click', () => this.switchMode('ocr'));
+        // Mode switching with explicit null checks and debugging
+        if (this.elements.voiceMode) {
+            this.elements.voiceMode.addEventListener('click', () => {
+                console.log('Voice mode clicked');
+                this.switchMode('voice');
+            });
+        } else {
+            console.error('Voice mode button not found');
+        }
+        
+        if (this.elements.textMode) {
+            this.elements.textMode.addEventListener('click', () => {
+                console.log('Text mode clicked');
+                this.switchMode('text');
+            });
+        } else {
+            console.error('Text mode button not found');
+        }
+        
+        if (this.elements.cameraMode) {
+            this.elements.cameraMode.addEventListener('click', () => {
+                console.log('Camera mode clicked');
+                this.switchMode('camera');
+            });
+        } else {
+            console.error('Camera mode button not found');
+        }
+        
+        if (this.elements.ocrMode) {
+            this.elements.ocrMode.addEventListener('click', () => {
+                console.log('OCR mode clicked');
+                this.switchMode('ocr');
+            });
+        } else {
+            console.error('OCR mode button not found');
+        }
 
         // Language selection
         this.elements.sourceLanguage?.addEventListener('change', (e) => {
@@ -2418,7 +2459,7 @@ class RealTimeTranslator {
 }
 
 // ==================== INITIALIZATION ====================
-document.addEventListener('DOMContentLoaded', () => {
+function initializeApp() {
     console.log('🚀 Starting Real-Time Translator...');
 
     // Check dependencies
@@ -2431,5 +2472,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Initialize application
-    window.translator = new RealTimeTranslator();
+    try {
+        window.translator = new RealTimeTranslator();
+        console.log('✅ Application initialized successfully');
+    } catch (error) {
+        console.error('❌ Failed to initialize application:', error);
+    }
+}
+
+// Multiple initialization strategies
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeApp);
+} else {
+    // DOM is already loaded
+    initializeApp();
+}
+
+// Fallback initialization
+window.addEventListener('load', () => {
+    if (!window.translator) {
+        console.log('Fallback initialization...');
+        initializeApp();
+    }
 });
