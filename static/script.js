@@ -1790,9 +1790,9 @@ class RealTimeTranslator {
             
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: { 
-                    width: 640, 
-                    height: 480,
-                    facingMode: 'environment' // Use back camera by default
+                    width: 1280, 
+                    height: 720,
+                    facingMode: 'environment'
                 },
                 audio: false
             });
@@ -1803,18 +1803,38 @@ class RealTimeTranslator {
             await new Promise(resolve => {
                 this.elements.ocrVideoElement.onloadedmetadata = () => {
                     this.elements.ocrVideoElement.play();
+                    this.addOcrOverlay();
                     resolve();
                 };
             });
             
             this.state.isOcrCameraActive = true;
             this.updateOcrButtons();
-            this.showStatus('Camera ready - Take a photo', 'ocrStatus');
+            this.showStatus('Point at text and capture', 'ocrStatus');
             
         } catch (error) {
             console.error('OCR camera error:', error);
             this.showError('Failed to start camera: ' + error.message);
         }
+    }
+
+    addOcrOverlay() {
+        const video = this.elements.ocrVideoElement;
+        const overlay = document.createElement('div');
+        overlay.id = 'ocrOverlay';
+        overlay.style.cssText = `
+            position: absolute;
+            top: 30%;
+            left: 10%;
+            width: 80%;
+            height: 40%;
+            border: 2px solid #00ff00;
+            background: rgba(0,255,0,0.1);
+            pointer-events: none;
+            z-index: 100;
+        `;
+        video.parentElement.style.position = 'relative';
+        video.parentElement.appendChild(overlay);
     }
 
     /**

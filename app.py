@@ -547,10 +547,21 @@ def ocr_image():
         if result.get('IsErroredOnProcessing'):
             raise Exception(result.get('ErrorMessage', 'OCR processing failed'))
 
-        # Extract text
+        # Extract and clean text
         extracted_text = ''
         if result.get('ParsedResults'):
-            extracted_text = result['ParsedResults'][0].get('ParsedText', '').strip()
+            raw_text = result['ParsedResults'][0].get('ParsedText', '').strip()
+            # Clean OCR noise aggressively
+            import re
+            # Remove UI elements and noise
+            cleaned = re.sub(r'\d+\s*[A-Z]\s*=+', '', raw_text)  # Remove "26 B ==="
+            cleaned = re.sub(r'Background\s+\w+\s+\w+', '', cleaned, flags=re.IGNORECASE)  # Remove "Background li abri"
+            cleaned = re.sub(r'Search\s+\w+\s+\w+\d*', '', cleaned, flags=re.IGNORECASE)  # Remove "Search FIO F12"
+            cleaned = re.sub(r'[=]{2,}', '', cleaned)  # Remove === patterns
+            cleaned = re.sub(r'\b[A-Z]\d+\b', '', cleaned)  # Remove F12, B26 etc
+            cleaned = re.sub(r'\ba\s+Search\b', '', cleaned, flags=re.IGNORECASE)  # Remove "a Search"
+            cleaned = re.sub(r'\s+', ' ', cleaned)  # Multiple spaces to single
+            extracted_text = cleaned.strip()
 
         if not extracted_text:
             return jsonify({
