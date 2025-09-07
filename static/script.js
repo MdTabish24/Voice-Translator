@@ -1826,17 +1826,21 @@ class RealTimeTranslator {
         try {
             this.showStatus('Capturing and processing...', 'ocrStatus');
             
-            // Capture frame
+            // Capture frame with better quality
             const canvas = document.createElement('canvas');
             const video = this.elements.ocrVideoElement;
             
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
+            // Use higher resolution for better OCR
+            canvas.width = video.videoWidth || 1280;
+            canvas.height = video.videoHeight || 720;
             
             const ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0);
             
-            const imageData = canvas.toDataURL('image/jpeg', 0.8);
+            // Improve image quality for OCR
+            ctx.filter = 'contrast(1.2) brightness(1.1)';
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            const imageData = canvas.toDataURL('image/jpeg', 0.95);
             
             // Process OCR
             const result = await this.processOCR(imageData);
@@ -1899,7 +1903,7 @@ class RealTimeTranslator {
             <div class="ocr-result">
                 <h4>📷 Text Extracted</h4>
                 <div class="extracted-section">
-                    <strong>Original Text (${this.getLanguageName(detected_language)}):</strong>
+                    <strong>Original Text (${this.getLanguageName(detected_language || 'en')}):</strong>
                     <div class="extracted-text">${extracted_text}</div>
                 </div>
         `;
@@ -2032,9 +2036,12 @@ class RealTimeTranslator {
         const names = {
             'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
             'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese',
-            'ko': 'Korean', 'zh': 'Chinese', 'ar': 'Arabic', 'hi': 'Hindi'
+            'ko': 'Korean', 'zh': 'Chinese', 'ar': 'Arabic', 'hi': 'Hindi',
+            'mr': 'Marathi', 'bn': 'Bengali', 'te': 'Telugu', 'ta': 'Tamil',
+            'gu': 'Gujarati', 'kn': 'Kannada', 'ml': 'Malayalam', 'pa': 'Punjabi',
+            'ur': 'Urdu', 'ne': 'Nepali', 'si': 'Sinhala', 'my': 'Myanmar'
         };
-        return names[code] || code;
+        return names[code] || code.toUpperCase();
     }
 
     /**

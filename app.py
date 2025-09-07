@@ -525,13 +525,20 @@ def ocr_image():
         if ',' in image_data:
             image_data = image_data.split(',')[1]
 
-        # OCR.space API call
+        # Try multiple OCR approaches for better accuracy
+        extracted_text = ''
+        
+        # Method 1: OCR.space with enhanced settings
         ocr_url = 'https://api.ocr.space/parse/image'
         payload = {
             'base64Image': f'data:image/jpeg;base64,{image_data}',
-            'apikey': 'helloworld',  # Free API key
+            'apikey': 'helloworld',
             'language': 'eng',
-            'isOverlayRequired': False
+            'isOverlayRequired': False,
+            'OCREngine': 2,  # Use better engine
+            'scale': True,
+            'isTable': False,
+            'detectOrientation': True
         }
 
         response = requests.post(ocr_url, data=payload, timeout=30)
