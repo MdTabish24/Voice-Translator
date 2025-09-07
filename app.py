@@ -10,13 +10,23 @@ import re
 import json
 import hashlib
 import os
+import base64
 from functools import wraps, lru_cache
 from datetime import datetime
 from typing import Dict, List, Optional
+from io import BytesIO
 
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from googletrans import Translator, LANGUAGES
+
+try:
+    import pytesseract
+    from PIL import Image
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
+    print("Warning: pytesseract/PIL not available. OCR features disabled.")
 
 # ==================== CONFIGURATION ====================
 
@@ -481,6 +491,82 @@ def detect_language():
         return jsonify({
             'error': 'Detection failed',
             'message': 'Could not detect language'
+        }), 500
+
+@app.route('/ocr', methods=['POST', 'OPTIONS'])
+@handle_errors
+def ocr_image():
+    """Extract text from image using OCR"""
+    
+    if request.method == 'OPTIONS':
+        return '', 204
+    
+    if not OCR_AVAILABLE:
+        return jsonify({
+            'error': 'OCR not available',
+            'message': 'pytesseract not installed'
+        }), 503
+    
+    if not request.is_json:
+        return jsonify({
+            'error': 'Invalid request',
+            'message': 'Request must be JSON with base64 image'
+        }), 400
+    
+    data = request.get_json()
+    
+    if not data or 'image' not in data:
+        return jsonify({
+            'error': 'Missing image data',
+            'message': 'base64 image data required'
+        }), 400
+    
+    try:
+        # Decode base64 image
+        image_data = base64.b64decode(data['image'].split(',')[1] if ',' in data['image'] else data['image'])
+        image = Image.open(BytesIO(image_data))
+        
+        # Extract text using OCR
+        extracted_text = pytesseract.image_to_string(image).strip()
+        
+        if not extracted_text:
+            return jsonify({
+                'extracted_text': '',
+                'detected_language': 'unknown',
+                'message': 'No text found in image'
+            }), 200
+        
+        # Detect language
+        detected_lang = 'en'  # default
+        try:
+            detection = translation_manager.translator.detect(extracted_text)
+            detected_lang = detection.lang
+        except:
+            pass
+        
+        # Translate if target language specified
+        translation = None
+        if 'target_language' in data and data['target_language'] != detected_lang:
+            try:
+                translation = translation_manager.translate(
+                    extracted_text, 
+                    data['target_language'], 
+                    detected_lang
+                )
+            except Exception as e:
+                logger.error(f"OCR translation failed: {e}")
+        
+        return jsonify({
+            'extracted_text': extracted_text,
+            'detected_language': detected_lang,
+            'translation': translation
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"OCR processing failed: {e}")
+        return jsonify({
+            'error': 'OCR failed',
+            'message': str(e)
         }), 500
 
 # ==================== ERROR HANDLERS ====================

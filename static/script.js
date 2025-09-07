@@ -668,6 +668,7 @@ class RealTimeTranslator {
             startCamera: document.getElementById('startCamera'),
             stopCamera: document.getElementById('stopCamera'),
             switchCamera: document.getElementById('switchCamera'), // Added switch camera
+            capturePhoto: document.getElementById('capturePhoto'), // Added OCR photo
             textInput: document.getElementById('textInput'), // Added text input
             translateText: document.getElementById('translateText'), // Added translate button
             clearText: document.getElementById('clearText'), // Added clear button
@@ -785,6 +786,7 @@ class RealTimeTranslator {
         this.elements.startCamera?.addEventListener('click', () => this.startCamera());
         this.elements.stopCamera?.addEventListener('click', () => this.stopCamera());
         this.elements.switchCamera?.addEventListener('click', () => this.switchCamera());
+        this.elements.capturePhoto?.addEventListener('click', () => this.capturePhoto());
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
@@ -1716,6 +1718,123 @@ class RealTimeTranslator {
         if (this.elements.switchCamera) {
             this.elements.switchCamera.disabled = !this.state.isCameraActive;
         }
+
+        if (this.elements.capturePhoto) {
+            this.elements.capturePhoto.disabled = !this.state.isCameraActive;
+        }
+    }
+
+    /**
+     * Capture photo for OCR
+     */
+    async capturePhoto() {
+        if (!this.state.isCameraActive) return;
+
+        try {
+            this.showStatus('Capturing photo...', 'cameraStatus');
+            
+            // Create canvas to capture frame
+            const canvas = document.createElement('canvas');
+            const video = this.elements.videoElement;
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0);
+            
+            // Convert to base64
+            const imageData = canvas.toDataURL('image/jpeg', 0.8);
+            
+            this.showStatus('Processing OCR...', 'cameraStatus');
+            
+            // Send to OCR API
+            const result = await this.processOCR(imageData);
+            
+            if (result.extracted_text) {
+                this.displayOCRResult(result);
+            } else {
+                this.showWarning('No text found in image');
+            }
+            
+        } catch (error) {
+            console.error('Photo capture failed:', error);
+            this.showError('Failed to process photo: ' + error.message);
+        } finally {
+            this.showStatus('Camera active - Ready for OCR', 'cameraStatus');
+        }
+    }
+
+    /**
+     * Process OCR
+     */
+    async processOCR(imageData) {
+        const apiUrl = APP_CONFIG.API_BASE ? `${APP_CONFIG.API_BASE}/ocr` : '/ocr';
+        
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                image: imageData,
+                target_language: this.state.targetLanguage
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`OCR failed: ${response.status}`);
+        }
+        
+        return await response.json();
+    }
+
+    /**
+     * Display OCR result
+     */
+    displayOCRResult(result) {
+        const { extracted_text, detected_language, translation } = result;
+        
+        // Show in detected objects area
+        const html = `
+            <div class="ocr-result">
+                <h4>📷 OCR Result</h4>
+                <div class="ocr-text">
+                    <strong>Extracted Text:</strong><br>
+                    <div class="extracted-text">${extracted_text}</div>
+                </div>
+                <div class="ocr-lang">
+                    <strong>Detected Language:</strong> ${this.getLanguageName(detected_language)}
+                </div>
+                ${translation ? `
+                    <div class="ocr-translation">
+                        <strong>Translation:</strong><br>
+                        <div class="translated-text">${translation.translated_text}</div>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+        
+        this.updateDisplay('detectedObjects', html);
+        
+        // Speak translation if available
+        if (translation) {
+            this.speakText(translation.translated_text, this.state.targetLanguage);
+        }
+        
+        // Update stats
+        this.performanceMonitor.totalTranslations++;
+        this.updatePerformanceDisplay();
+    }
+
+    /**
+     * Get language name from code
+     */
+    getLanguageName(code) {
+        const names = {
+            'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
+            'it': 'Italian', 'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese',
+            'ko': 'Korean', 'zh': 'Chinese', 'ar': 'Arabic', 'hi': 'Hindi'
+        };
+        return names[code] || code;
     }
 
     /**
@@ -1725,7 +1844,7 @@ class RealTimeTranslator {
         if (!this.state.isCameraActive) return;
 
         console.log('🔍 Starting object detection...');
-        this.showStatus('Detecting objects...', 'cameraStatus', true);
+        this.showStatus('Camera active - Detecting objects...', 'cameraStatus', true);
 
         // Clear previous interval
         if (this.state.detectionInterval) {
@@ -1801,8 +1920,12 @@ class RealTimeTranslator {
                 const translation = await this.translateText(topDetection.class, this.state.targetLanguage, 'en');
 
                 if (translation) {
-                    // Store translation
-                    topDetection.translation = translation.translated_text;
+                    // Store translation in all detections of same class
+                    detections.forEach(det => {
+                        if (det.class === topDetection.class) {
+                            det.translation = translation.translated_text;
+                        }
+                    });
 
                     // Speak translation
                     this.speakText(translation.translated_text, this.state.targetLanguage);
@@ -1965,49 +2088,36 @@ class RealTimeTranslator {
         const container = this.elements.detectedObjects;
         if (!container) return;
 
-        // Group by category
-        const grouped = {};
-        detections.forEach(det => {
-            const cat = det.category || 'Object';
-            if (!grouped[cat]) grouped[cat] = [];
-            grouped[cat].push(det);
-        });
+        if (detections.length === 0) {
+            container.innerHTML = 'No objects detected';
+            return;
+        }
 
-        // Build HTML
-        let html = '<div class="detection-list">';
-
-        Object.entries(grouped).forEach(([category, items]) => {
-            html += `
-                <div class="detection-category">
-                    <div class="category-title">${category}</div>
-                    <div class="category-items">
-            `;
-
-            items.forEach(item => {
-                const confidence = Math.round(item.confidence * 100);
-                html += `
-                    <div class="detection-item">
-                        <div class="item-info">
-                            <div class="item-name">${item.class}</div>
-                            ${item.translation ?
-                                `<div class="item-translation">${item.translation}</div>` :
-                                ''
-                            }
-                        </div>
-                        <div class="item-confidence">
-                            <div class="confidence-bar">
-                                <div class="confidence-fill" style="width: ${confidence}%"></div>
-                            </div>
-                            <span>${confidence}%</span>
-                        </div>
+        // Show top detection with translation
+        const topDetection = detections[0];
+        const confidence = Math.round(topDetection.confidence * 100);
+        
+        let html = `
+            <div class="current-detection">
+                <div class="detection-header">
+                    <h4>🎯 Detected Object</h4>
+                </div>
+                <div class="object-info">
+                    <div class="object-original">
+                        <strong>English:</strong> ${topDetection.class}
                     </div>
-                `;
-            });
-
-            html += '</div></div>';
-        });
-
-        html += '</div>';
+                    ${topDetection.translation ? `
+                        <div class="object-translated">
+                            <strong>${this.getLanguageName(this.state.targetLanguage)}:</strong> ${topDetection.translation}
+                        </div>
+                    ` : ''}
+                    <div class="object-confidence">
+                        <strong>Confidence:</strong> ${confidence}%
+                    </div>
+                </div>
+            </div>
+        `;
+        
         container.innerHTML = html;
     }
 
