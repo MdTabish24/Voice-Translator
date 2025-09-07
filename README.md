@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-# Voice-Translator
-=======
 # Real-Time Translator
 
 A web-based real-time language translator with voice and camera modes for educational demonstrations.
@@ -45,7 +42,7 @@ A web-based real-time language translator with voice and camera modes for educat
    ```bash
    python app.py
    ```
-   
+
    You should see output like:
    ```
    INFO - Starting Real-Time Translator API server...
@@ -140,18 +137,18 @@ Grant permissions when prompted by your browser.
 ### Common Issues
 
 #### Backend Issues
-- **Backend not starting**: 
+- **Backend not starting**:
   - Ensure Python 3.7+ is installed: `python --version`
   - Install dependencies: `pip install -r requirements.txt`
   - Check if port 5000 is available
 
-- **Translation not working**: 
+- **Translation not working**:
   - Check internet connection (googletrans requires internet)
   - Verify backend is running: visit `http://127.0.0.1:5000/health`
   - Check backend logs for error messages
 
 #### Frontend Issues
-- **Camera/microphone not working**: 
+- **Camera/microphone not working**:
   - Grant permissions when browser prompts
   - Use HTTPS in production (required for camera/mic access)
   - Try Chrome or Edge browsers for best compatibility
@@ -161,7 +158,7 @@ Grant permissions when prompted by your browser.
   - Wait for "Camera active - Detecting objects..." status
   - Try refreshing the page
 
-- **CORS errors**: 
+- **CORS errors**:
   - Ensure backend is running on port 5000
   - Check that you're accessing via `http://127.0.0.1:5000/static/index.html`
 
@@ -189,14 +186,14 @@ This is a demonstration application built for educational purposes.
 - **Speech**: Browser's built-in Web Speech API and SpeechSynthesis
 
 ### Key Features Implemented
-✅ Voice Mode with continuous speech recognition  
-✅ Camera Mode with real-time object detection  
-✅ Text-to-speech in multiple languages  
-✅ Responsive design for presentations  
-✅ Comprehensive error handling  
-✅ Long text chunking for better translation  
-✅ Visual feedback and status indicators  
-✅ Browser compatibility checks  
+✅ Voice Mode with continuous speech recognition
+✅ Camera Mode with real-time object detection
+✅ Text-to-speech in multiple languages
+✅ Responsive design for presentations
+✅ Comprehensive error handling
+✅ Long text chunking for better translation
+✅ Visual feedback and status indicators
+✅ Browser compatibility checks
 
 ### For Production Use, Consider:
 - Adding authentication and rate limiting
@@ -212,4 +209,3 @@ This is a demonstration application built for educational purposes.
 - Translation requests are debounced to avoid API spam
 - TensorFlow.js model is cached by the browser after first load
 - Long text is automatically chunked for better translation quality
->>>>>>> b81045f (Initial commit)

@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 Flask==2.3.3
 Flask-CORS==4.0.0
 googletrans==4.0.0rc1
@@ -7,14 +6,4 @@ flask-limiter==3.5.0
 redis==5.0.0
 werkzeug==2.3.7
 python-dotenv==1.0.0
-=======
-Flask==2.3.3
-Flask-CORS==4.0.0
-googletrans==4.0.0rc1
-requests==2.31.0
-flask-limiter==3.5.0
-redis==5.0.0
-werkzeug==2.3.7
-python-dotenv==1.0.0
->>>>>>> b81045f (Initial commit)
 gunicorn==21.2.0
