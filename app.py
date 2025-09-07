@@ -21,7 +21,7 @@ from googletrans import Translator, LANGUAGES
 
 class Config:
     """Application configuration"""
-    DEBUG = True
+    DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
     HOST = '127.0.0.1'
     PORT = 5000
     MAX_TEXT_LENGTH = 10000

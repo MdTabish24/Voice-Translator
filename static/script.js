@@ -6,8 +6,9 @@
 
 // ==================== CONFIGURATION ====================
 const getApiBase = () => {
-    // If we're on Railway or production
-    if (window.location.hostname.includes('railway.app') ||
+    // If we're on production (Render, Railway, Heroku)
+    if (window.location.hostname.includes('onrender.com') ||
+        window.location.hostname.includes('railway.app') ||
         window.location.hostname.includes('herokuapp.com')) {
         return ''; // Use same origin
     }
@@ -15,12 +16,12 @@ const getApiBase = () => {
     // For local development
     if (window.location.hostname === 'localhost' ||
         window.location.hostname === '127.0.0.1') {
-        // Check if we're already on port 8080 (accessing through Flask)
-        if (window.location.port === '8080') {
+        // Check if we're already on port 5000 (accessing through Flask)
+        if (window.location.port === '5000') {
             return ''; // Same origin
         }
-        // Otherwise, explicitly use port 8080
-        return 'http://127.0.0.1:8080';
+        // Otherwise, explicitly use port 5000
+        return 'http://127.0.0.1:5000';
     }
 
     // Default to same origin
@@ -29,10 +30,12 @@ const getApiBase = () => {
 
 // ==================== CONFIGURATION ====================
 const APP_CONFIG = {
-    // Fix the API base URL
-    API_BASE: window.location.hostname.includes('railway.app')
-        ? '' // On Railway, use same origin (no localhost)
-        : 'http://127.0.0.1:8080', // For local development, use port 8080
+    // Fix the API base URL for production deployment
+    API_BASE: (window.location.hostname.includes('onrender.com') || 
+               window.location.hostname.includes('railway.app') ||
+               window.location.hostname.includes('herokuapp.com'))
+        ? '' // On production, use same origin
+        : 'http://127.0.0.1:5000', // For local development, use port 5000
 
     DETECTION: {
         DEFAULT_MODEL: 'yolo',
@@ -58,6 +61,7 @@ const APP_CONFIG = {
 
 console.log('Running on:', window.location.hostname);
 console.log('API Base:', APP_CONFIG.API_BASE || 'same origin');
+console.log('Port:', window.location.port);
 
 // ==================== ADVANCED DETECTION MODELS ====================
 class UniversalObjectDetector {
