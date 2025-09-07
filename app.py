@@ -11,7 +11,6 @@ import json
 import hashlib
 import os
 import base64
-import pytesseract
 from functools import wraps, lru_cache
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -30,8 +29,6 @@ except ImportError:
     print("Warning: pytesseract/PIL not available. OCR features disabled.")
 
 # ==================== CONFIGURATION ====================
-
-pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 
 
 class Config:
