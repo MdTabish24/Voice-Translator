@@ -2,6 +2,7 @@
 """
 Simple test script for Real-Time Translator API
 Run this to verify the backend is working correctly
+?
 """
 
 import requests
@@ -11,10 +12,10 @@ import sys
 def test_backend():
     """Test all backend endpoints"""
     base_url = "http://127.0.0.1:5000"
-    
+
     print("🧪 Testing Real-Time Translator Backend")
     print("=" * 50)
-    
+
     # Test 1: Health check
     print("\n1. Testing health endpoint...")
     try:
@@ -29,7 +30,7 @@ def test_backend():
         print(f"❌ Health check failed: {e}")
         print("   Make sure the backend is running: python app.py")
         return False
-    
+
     # Test 2: Languages endpoint
     print("\n2. Testing languages endpoint...")
     try:
@@ -42,7 +43,7 @@ def test_backend():
             print(f"❌ Languages endpoint failed: {response.status_code}")
     except Exception as e:
         print(f"❌ Languages endpoint failed: {e}")
-    
+
     # Test 3: Simple translation
     print("\n3. Testing simple translation...")
     try:
@@ -51,8 +52,8 @@ def test_backend():
             "target_language": "es"
         }
         response = requests.post(
-            f"{base_url}/translate", 
-            json=test_data, 
+            f"{base_url}/translate",
+            json=test_data,
             timeout=10
         )
         if response.status_code == 200:
@@ -65,7 +66,7 @@ def test_backend():
             print(f"   Response: {response.text}")
     except Exception as e:
         print(f"❌ Simple translation failed: {e}")
-    
+
     # Test 4: Long text translation
     print("\n4. Testing long text translation...")
     try:
@@ -75,8 +76,8 @@ def test_backend():
             "target_language": "fr"
         }
         response = requests.post(
-            f"{base_url}/translate-long", 
-            json=test_data, 
+            f"{base_url}/translate-long",
+            json=test_data,
             timeout=15
         )
         if response.status_code == 200:
@@ -88,7 +89,7 @@ def test_backend():
             print(f"❌ Long text translation failed: {response.status_code}")
     except Exception as e:
         print(f"❌ Long text translation failed: {e}")
-    
+
     # Test 5: Error handling
     print("\n5. Testing error handling...")
     try:
@@ -100,7 +101,7 @@ def test_backend():
             print(f"⚠️  Error handling unexpected: {response.status_code}")
     except Exception as e:
         print(f"❌ Error handling test failed: {e}")
-    
+
     print("\n" + "=" * 50)
     print("🎉 Backend testing completed!")
     print("\nNext steps:")
@@ -108,7 +109,7 @@ def test_backend():
     print("2. Navigate to: http://127.0.0.1:5000/")
     print("3. Test Voice Mode and Camera Mode")
     print("4. Grant microphone and camera permissions when prompted")
-    
+
     return True
 
 if __name__ == "__main__":
