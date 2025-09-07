@@ -642,6 +642,7 @@ class RealTimeTranslator {
             targetLanguage: 'es',
             isListening: false,
             isCameraActive: false,
+            isOcrCameraActive: false,
             isSpeaking: false,
             lastTranslation: null,
             recognition: null,
@@ -667,8 +668,15 @@ class RealTimeTranslator {
             stopListening: document.getElementById('stopListening'),
             startCamera: document.getElementById('startCamera'),
             stopCamera: document.getElementById('stopCamera'),
-            switchCamera: document.getElementById('switchCamera'), // Added switch camera
-            capturePhoto: document.getElementById('capturePhoto'), // Added OCR photo
+            switchCamera: document.getElementById('switchCamera'),
+            ocrMode: document.getElementById('ocrMode'),
+            ocrInterface: document.getElementById('ocrInterface'),
+            startOcrCamera: document.getElementById('startOcrCamera'),
+            captureOcrPhoto: document.getElementById('captureOcrPhoto'),
+            stopOcrCamera: document.getElementById('stopOcrCamera'),
+            ocrVideoElement: document.getElementById('ocrVideoElement'),
+            ocrStatus: document.getElementById('ocrStatus'),
+            ocrOutput: document.getElementById('ocrOutput')
             textInput: document.getElementById('textInput'), // Added text input
             translateText: document.getElementById('translateText'), // Added translate button
             clearText: document.getElementById('clearText'), // Added clear button
@@ -749,8 +757,9 @@ class RealTimeTranslator {
     setupEventListeners() {
         // Mode switching
         this.elements.voiceMode?.addEventListener('click', () => this.switchMode('voice'));
-        this.elements.textMode?.addEventListener('click', () => this.switchMode('text')); // Added text mode
+        this.elements.textMode?.addEventListener('click', () => this.switchMode('text'));
         this.elements.cameraMode?.addEventListener('click', () => this.switchMode('camera'));
+        this.elements.ocrMode?.addEventListener('click', () => this.switchMode('ocr'));
 
         // Language selection
         this.elements.sourceLanguage?.addEventListener('change', (e) => {
@@ -786,7 +795,11 @@ class RealTimeTranslator {
         this.elements.startCamera?.addEventListener('click', () => this.startCamera());
         this.elements.stopCamera?.addEventListener('click', () => this.stopCamera());
         this.elements.switchCamera?.addEventListener('click', () => this.switchCamera());
-        this.elements.capturePhoto?.addEventListener('click', () => this.capturePhoto());
+        
+        // OCR controls
+        this.elements.startOcrCamera?.addEventListener('click', () => this.startOcrCamera());
+        this.elements.captureOcrPhoto?.addEventListener('click', () => this.captureOcrPhoto());
+        this.elements.stopOcrCamera?.addEventListener('click', () => this.stopOcrCamera());
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
@@ -1098,6 +1111,8 @@ class RealTimeTranslator {
             this.stopListening();
         } else if (this.state.currentMode === 'camera' && this.state.isCameraActive) {
             this.stopCamera();
+        } else if (this.state.currentMode === 'ocr' && this.state.isOcrCameraActive) {
+            this.stopOcrCamera();
         }
 
         // Update state
@@ -1117,20 +1132,23 @@ class RealTimeTranslator {
         this.elements.voiceMode?.classList.toggle('active', mode === 'voice');
         this.elements.textMode?.classList.toggle('active', mode === 'text');
         this.elements.cameraMode?.classList.toggle('active', mode === 'camera');
+        this.elements.ocrMode?.classList.toggle('active', mode === 'ocr');
 
         // Show/hide interfaces
         this.elements.voiceInterface?.classList.toggle('hidden', mode !== 'voice');
         this.elements.textInterface?.classList.toggle('hidden', mode !== 'text');
         this.elements.cameraInterface?.classList.toggle('hidden', mode !== 'camera');
+        this.elements.ocrInterface?.classList.toggle('hidden', mode !== 'ocr');
 
         // Update status
         if (mode === 'voice') {
             this.showStatus('Ready to listen', 'voiceStatus');
         } else if (mode === 'text') {
-            // Focus on text input
             setTimeout(() => this.elements.textInput?.focus(), 100);
-        } else {
+        } else if (mode === 'camera') {
             this.showStatus('Ready to detect objects', 'cameraStatus');
+        } else if (mode === 'ocr') {
+            this.showStatus('Ready to start camera for OCR', 'ocrStatus');
         }
     }
 
@@ -1718,10 +1736,147 @@ class RealTimeTranslator {
         if (this.elements.switchCamera) {
             this.elements.switchCamera.disabled = !this.state.isCameraActive;
         }
+    }
 
-        if (this.elements.capturePhoto) {
-            this.elements.capturePhoto.disabled = !this.state.isCameraActive;
+    // ==================== OCR MODE ====================
+
+    /**
+     * Start OCR camera
+     */
+    async startOcrCamera() {
+        try {
+            this.showStatus('Starting camera...', 'ocrStatus');
+            
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 640, height: 480 },
+                audio: false
+            });
+            
+            this.state.ocrVideoStream = stream;
+            this.elements.ocrVideoElement.srcObject = stream;
+            
+            await new Promise(resolve => {
+                this.elements.ocrVideoElement.onloadedmetadata = () => {
+                    this.elements.ocrVideoElement.play();
+                    resolve();
+                };
+            });
+            
+            this.state.isOcrCameraActive = true;
+            this.updateOcrButtons();
+            this.showStatus('Camera ready - Take a photo', 'ocrStatus');
+            
+        } catch (error) {
+            console.error('OCR camera error:', error);
+            this.showError('Failed to start camera: ' + error.message);
         }
+    }
+
+    /**
+     * Capture OCR photo
+     */
+    async captureOcrPhoto() {
+        if (!this.state.isOcrCameraActive) return;
+        
+        try {
+            this.showStatus('Capturing and processing...', 'ocrStatus');
+            
+            // Capture frame
+            const canvas = document.createElement('canvas');
+            const video = this.elements.ocrVideoElement;
+            
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0);
+            
+            const imageData = canvas.toDataURL('image/jpeg', 0.8);
+            
+            // Process OCR
+            const result = await this.processOCR(imageData);
+            this.displayOcrResult(result);
+            
+        } catch (error) {
+            console.error('OCR capture failed:', error);
+            this.showError('OCR failed: ' + error.message);
+        } finally {
+            this.showStatus('Camera ready - Take another photo', 'ocrStatus');
+        }
+    }
+
+    /**
+     * Stop OCR camera
+     */
+    stopOcrCamera() {
+        if (this.state.ocrVideoStream) {
+            this.state.ocrVideoStream.getTracks().forEach(track => track.stop());
+            this.state.ocrVideoStream = null;
+        }
+        
+        if (this.elements.ocrVideoElement) {
+            this.elements.ocrVideoElement.srcObject = null;
+        }
+        
+        this.state.isOcrCameraActive = false;
+        this.updateOcrButtons();
+        this.showStatus('Camera stopped', 'ocrStatus');
+        this.updateDisplay('ocrOutput', 'Take a photo to extract text...');
+    }
+
+    /**
+     * Update OCR buttons
+     */
+    updateOcrButtons() {
+        if (this.elements.startOcrCamera) {
+            this.elements.startOcrCamera.disabled = this.state.isOcrCameraActive;
+        }
+        if (this.elements.captureOcrPhoto) {
+            this.elements.captureOcrPhoto.disabled = !this.state.isOcrCameraActive;
+        }
+        if (this.elements.stopOcrCamera) {
+            this.elements.stopOcrCamera.disabled = !this.state.isOcrCameraActive;
+        }
+    }
+
+    /**
+     * Display OCR result
+     */
+    displayOcrResult(result) {
+        const { extracted_text, detected_language, translation } = result;
+        
+        if (!extracted_text) {
+            this.updateDisplay('ocrOutput', 'No text found in image');
+            return;
+        }
+        
+        let html = `
+            <div class="ocr-result">
+                <h4>📷 Text Extracted</h4>
+                <div class="extracted-section">
+                    <strong>Original Text (${this.getLanguageName(detected_language)}):</strong>
+                    <div class="extracted-text">${extracted_text}</div>
+                </div>
+        `;
+        
+        if (translation) {
+            html += `
+                <div class="translation-section">
+                    <strong>Translation (${this.getLanguageName(this.state.targetLanguage)}):</strong>
+                    <div class="translated-text">${translation.translated_text}</div>
+                </div>
+            `;
+            
+            // Speak translation
+            this.speakText(translation.translated_text, this.state.targetLanguage);
+        }
+        
+        html += '</div>';
+        this.updateDisplay('ocrOutput', html);
+        
+        // Update stats
+        this.performanceMonitor.totalTranslations++;
+        this.updatePerformanceDisplay();
     }
 
     /**

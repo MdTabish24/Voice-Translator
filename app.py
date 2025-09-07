@@ -11,6 +11,7 @@ import json
 import hashlib
 import os
 import base64
+import pytesseract
 from functools import wraps, lru_cache
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -29,6 +30,9 @@ except ImportError:
     print("Warning: pytesseract/PIL not available. OCR features disabled.")
 
 # ==================== CONFIGURATION ====================
+
+pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+
 
 class Config:
     """Application configuration"""
@@ -496,46 +500,61 @@ def detect_language():
 @app.route('/ocr', methods=['POST', 'OPTIONS'])
 @handle_errors
 def ocr_image():
-    """Extract text from image using OCR"""
-    
+    """Extract text from image using Web OCR API"""
+
     if request.method == 'OPTIONS':
         return '', 204
-    
-    if not OCR_AVAILABLE:
-        return jsonify({
-            'error': 'OCR not available',
-            'message': 'pytesseract not installed'
-        }), 503
-    
+
     if not request.is_json:
         return jsonify({
             'error': 'Invalid request',
             'message': 'Request must be JSON with base64 image'
         }), 400
-    
+
     data = request.get_json()
-    
+
     if not data or 'image' not in data:
         return jsonify({
             'error': 'Missing image data',
             'message': 'base64 image data required'
         }), 400
-    
+
     try:
-        # Decode base64 image
-        image_data = base64.b64decode(data['image'].split(',')[1] if ',' in data['image'] else data['image'])
-        image = Image.open(BytesIO(image_data))
-        
-        # Extract text using OCR
-        extracted_text = pytesseract.image_to_string(image).strip()
-        
+        # Use OCR.space free API as fallback
+        import requests
+
+        # Prepare image for OCR.space API
+        image_data = data['image']
+        if ',' in image_data:
+            image_data = image_data.split(',')[1]
+
+        # OCR.space API call
+        ocr_url = 'https://api.ocr.space/parse/image'
+        payload = {
+            'base64Image': f'data:image/jpeg;base64,{image_data}',
+            'apikey': 'helloworld',  # Free API key
+            'language': 'eng',
+            'isOverlayRequired': False
+        }
+
+        response = requests.post(ocr_url, data=payload, timeout=30)
+        result = response.json()
+
+        if result.get('IsErroredOnProcessing'):
+            raise Exception(result.get('ErrorMessage', 'OCR processing failed'))
+
+        # Extract text
+        extracted_text = ''
+        if result.get('ParsedResults'):
+            extracted_text = result['ParsedResults'][0].get('ParsedText', '').strip()
+
         if not extracted_text:
             return jsonify({
                 'extracted_text': '',
                 'detected_language': 'unknown',
                 'message': 'No text found in image'
             }), 200
-        
+
         # Detect language
         detected_lang = 'en'  # default
         try:
@@ -543,25 +562,25 @@ def ocr_image():
             detected_lang = detection.lang
         except:
             pass
-        
+
         # Translate if target language specified
         translation = None
         if 'target_language' in data and data['target_language'] != detected_lang:
             try:
                 translation = translation_manager.translate(
-                    extracted_text, 
-                    data['target_language'], 
+                    extracted_text,
+                    data['target_language'],
                     detected_lang
                 )
             except Exception as e:
                 logger.error(f"OCR translation failed: {e}")
-        
+
         return jsonify({
             'extracted_text': extracted_text,
             'detected_language': detected_lang,
             'translation': translation
         }), 200
-        
+
     except Exception as e:
         logger.error(f"OCR processing failed: {e}")
         return jsonify({

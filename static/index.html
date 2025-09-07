@@ -19,6 +19,7 @@
                 <button id="voiceMode" class="mode-btn active">Voice Mode</button>
                 <button id="textMode" class="mode-btn">Text Mode</button>
                 <button id="cameraMode" class="mode-btn">Camera Mode</button>
+                <button id="ocrMode" class="mode-btn">📷 OCR Photo</button>
             </div>
 
             <!-- Language Selection with Swap -->
@@ -114,7 +115,6 @@
                     <button id="startCamera" class="control-btn">Start Camera</button>
                     <button id="stopCamera" class="control-btn" disabled>Stop Camera</button>
                     <button id="switchCamera" class="control-btn" disabled>Switch Camera</button>
-                    <button id="capturePhoto" class="control-btn" disabled>📷 OCR Photo</button>
                 </div>
                 <div class="status" id="cameraStatus">Ready to start camera</div>
                 <div class="camera-container">
@@ -124,6 +124,23 @@
                 <div class="detection-results">
                     <h3>Detected Objects:</h3>
                     <div id="detectedObjects">Point camera at objects to detect them...</div>
+                </div>
+            </div>
+
+            <!-- OCR Mode Interface -->
+            <div id="ocrInterface" class="mode-interface hidden">
+                <div class="controls">
+                    <button id="startOcrCamera" class="control-btn">Start Camera</button>
+                    <button id="captureOcrPhoto" class="control-btn" disabled>📷 Capture Photo</button>
+                    <button id="stopOcrCamera" class="control-btn" disabled>Stop Camera</button>
+                </div>
+                <div class="status" id="ocrStatus">Ready to start camera for OCR</div>
+                <div class="camera-container">
+                    <video id="ocrVideoElement" autoplay muted playsinline></video>
+                </div>
+                <div class="ocr-results">
+                    <h3>OCR Results:</h3>
+                    <div id="ocrOutput">Take a photo to extract text...</div>
                 </div>
             </div>
 
